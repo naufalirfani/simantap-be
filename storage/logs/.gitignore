@@ -8,7 +8,6 @@
 /vendor
 .editorconfig
 .env
-.env.example
 .env-docker
 .env.backup
 .env.production
