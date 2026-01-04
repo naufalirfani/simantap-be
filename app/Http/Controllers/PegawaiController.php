@@ -58,8 +58,8 @@ class PegawaiController extends Controller
 
             // `key` performs a broad search across most text columns (EXCLUDING the json column)
             // Example: ?key=andi will match name, nip, email, unit_organisasi_name, jabatan_name, jenis_jabatan, golongan
-            if ($request->filled('key')) {
-                $k = $request->get('key');
+            if ($request->filled('q')) {
+                $k = $request->get('q');
                 $query->where(function ($q) use ($k) {
                     $q->where('name', 'ilike', "%{$k}%")
                       ->orWhere('nip', 'ilike', "%{$k}%")
