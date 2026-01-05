@@ -6,7 +6,7 @@ set -e
 # Requirements: git, docker, docker compose
 
 REQUIRED_BRANCH="master"
-COMPOSE_FILE="docker/docker-compose.prod.yml"
+COMPOSE_FILE="docker-compose.prod.yml"
 
 # Ensure script executed from repo root
 if [ ! -f composer.json ]; then
