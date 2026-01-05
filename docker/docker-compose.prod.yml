@@ -1,0 +1,47 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: simantap-be:latest
+    env_file:
+      - .env-docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8001:8080"
+    restart: unless-stopped
+    networks:
+      - simantap
+    volumes:
+      - "./storage:/var/www/html/storage"
+      - "./bootstrap/cache:/var/www/html/bootstrap/cache"
+      - "./public/storage:/var/www/html/public/storage"
+    depends_on:
+      redis:
+        condition: service_healthy
+  redis:
+    env_file:
+      - .env-docker
+    image: "redis:alpine"
+    ports:
+      - "6381:6379"
+    volumes:
+      - "simantap-redis:/data"
+    networks:
+      - simantap
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      retries: 3
+      timeout: 5s
+      
+networks:
+    simantap:
+        driver: bridge
+
+volumes:
+    simantap-redis:
+        driver: local
