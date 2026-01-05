@@ -1,5 +1,5 @@
 #!/bin/sh
-set -euo pipefail
+set -e
 
 # docker-deploy.sh
 # Usage: ./docker-deploy.sh
