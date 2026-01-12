@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\PetaJabatan;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
-use Symfony\Component\HttpFoundation\Request;
+use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Carbon\Carbon;
 
