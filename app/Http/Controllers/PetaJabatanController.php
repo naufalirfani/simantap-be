@@ -5,21 +5,29 @@ namespace App\Http\Controllers;
 use App\Models\PetaJabatan;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\Request;
 
 class PetaJabatanController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $perPage = max(1, (int) request()->get('per_page', 10));
-            $page = max(1, (int) request()->get('page', 1));
-
+            // Read withPagination flag (default true)
+            $withPagination = filter_var($request->get('with_pagination', 'true'), FILTER_VALIDATE_BOOLEAN);
             $query = PetaJabatan::orderBy('order_index')->orderBy('level');
 
-            $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+            if ($withPagination) {
+                $perPage = max(1, (int) $request->get('per_page', 10));
+                $page = max(1, (int) $request->get('page', 1));
+
+                $paginator = $query->paginate($perPage, ['*'], 'page', $page);
+                $models = $paginator->items();
+            } else {
+                $models = $query->get()->all();
+            }
 
             $items = array_map(function ($model) {
                 $a = is_array($model) ? $model : $model->toArray();
@@ -32,18 +40,28 @@ class PetaJabatanController extends Controller
                     $a['nama_pejabat'] = [];
                 }
                 return $a;
-            }, $paginator->items());
+            }, $models);
 
-            return response()->json([
-                'success' => true,
-                'data' => $items,
-                'meta' => [
+            $meta = [];
+            if ($withPagination) {
+                $meta = [
                     'current_page' => $paginator->currentPage(),
                     'per_page' => $paginator->perPage(),
                     'last_page' => $paginator->lastPage(),
                     'total' => $paginator->total(),
-                ]
-            ], 200);
+                ];
+            }
+
+            $response = [
+                'success' => true,
+                'data' => $items,
+            ];
+
+            if ($withPagination) {
+                $response['meta'] = $meta;
+            }
+
+            return response()->json($response, 200);
         } catch (\Throwable $e) {
             Log::error('PetaJabatanController@index failed: ' . $e->getMessage());
 

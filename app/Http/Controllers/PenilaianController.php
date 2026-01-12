@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Pegawai;
 use App\Models\Penilaian;
 use App\Models\SubIndikator;
+use App\Models\StandarKompetensiMsk;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -52,7 +53,9 @@ class PenilaianController extends Controller
         $data = $request->validate([
             'pegawai_id' => 'required|exists:pegawai,id',
             'penilaian' => 'required|array',
-            'penilaian.*' => 'required|numeric',
+            'penilaian.*' => 'required|array',
+            'penilaian.*.nilai' => 'required|numeric',
+            'penilaian.*.hasil' => 'required|numeric',
         ]);
 
         // Validate keys are UUIDs and correspond to existing SubIndikator ids
@@ -70,10 +73,13 @@ class PenilaianController extends Controller
             return response()->json(['message' => 'Some subindikator_id not found', 'missing' => array_values($missing)], 422);
         }
 
-        // Ensure values have 2 decimal places and store as formatted string
+        // Normalize and store both 'nilai' and 'hasil' as numbers with 2 decimal places
         $penilaian = [];
-        foreach ($data['penilaian'] as $k => $v) {
-            $penilaian[$k] = number_format((float) $v, 2, '.', '');
+        foreach ($data['penilaian'] as $k => $entry) {
+            $penilaian[$k] = [
+                'nilai' => round((float) ($entry['nilai'] ?? 0), 2),
+                'hasil' => round((float) ($entry['hasil'] ?? 0), 2),
+            ];
         }
 
         $record = Penilaian::create([
@@ -107,7 +113,9 @@ class PenilaianController extends Controller
         $data = $request->validate([
             'pegawai_id' => 'sometimes|required|exists:pegawai,id',
             'penilaian' => 'sometimes|required|array',
-            'penilaian.*' => 'required_with:penilaian|numeric',
+            'penilaian.*' => 'required_with:penilaian|array',
+            'penilaian.*.nilai' => 'required_with:penilaian|numeric',
+            'penilaian.*.hasil' => 'required_with:penilaian|numeric',
         ]);
 
         $record = Penilaian::findOrFail($id);
@@ -128,8 +136,11 @@ class PenilaianController extends Controller
             }
 
             $penilaian = [];
-            foreach ($data['penilaian'] as $k => $v) {
-                $penilaian[$k] = number_format((float) $v, 2, '.', '');
+            foreach ($data['penilaian'] as $k => $entry) {
+                $penilaian[$k] = [
+                    'nilai' => round((float) ($entry['nilai'] ?? 0), 2),
+                    'hasil' => round((float) ($entry['hasil'] ?? 0), 2),
+                ];
             }
             $record->penilaian = $penilaian;
         }
@@ -195,14 +206,24 @@ class PenilaianController extends Controller
                 return response()->json(['message' => 'No subindikator columns found in payload'], 422);
             }
 
-            $allSub = SubIndikator::all();
+            // Load subindikators with indikator relation and build lookup by normalized name
+            $allSub = SubIndikator::with('indikator')->get();
             $subMap = [];
             foreach ($allSub as $s) {
                 $key = $this->normalizeName($s->subindikator ?? null);
                 if ($key === '') {
                     continue;
                 }
-                $subMap[$key] = $s->id;
+                $subMap[$key] = $s; // store model for later use (bobot, indikator)
+            }
+
+            // Load all standar kompetensi into map [jenis_jabatan_id][subindikator_id] => standar
+            $allStandar = StandarKompetensiMsk::all();
+            $standarMap = [];
+            foreach ($allStandar as $st) {
+                $jid = $st->jenis_jabatan_id;
+                $sid = $st->subindikator_id;
+                $standarMap[$jid][$sid] = (float) $st->standar;
             }
 
             $missingCols = [];
@@ -246,8 +267,39 @@ class PenilaianController extends Controller
                             $rowError = "Non-numeric value for '{$sn}'";
                             break;
                         }
-                        $subId = $subMap[$this->normalizeName($sn)];
-                        $penilaian[$subId] = number_format((float) $value, 2, '.', '');
+
+                        $subKey = $this->normalizeName($sn);
+                        $sub = $subMap[$subKey] ?? null;
+                        if (!$sub) {
+                            $rowError = "Unknown subindikator for '{$sn}'";
+                            break;
+                        }
+
+                        $subId = $sub->id;
+                        $nilai = (float) $value;
+                        $bobot = (float) ($sub->bobot ?? 0);
+                        $indikatorPen = strtolower($sub->indikator->penilaian ?? '');
+
+                        // Determine if this indikator uses standar-based calculation
+                        $usesStandar = preg_match('/manajerial|sosial|kompetensi/i', $indikatorPen);
+
+                        $hasil = 0.0;
+                        if ($usesStandar) {
+                            $jid = $pegawai->jenis_jabatan_id ?? null;
+                            $standar = $jid && isset($standarMap[$jid][$subId]) ? (float) $standarMap[$jid][$subId] : 0.0;
+                            if ($standar > 0) {
+                                $hasil = ($nilai / $standar) * 100.0 * ($bobot / 100.0);
+                            } else {
+                                $hasil = 0.0;
+                            }
+                        } else {
+                            $hasil = $nilai * ($bobot / 100.0);
+                        }
+
+                        $penilaian[$subId] = [
+                            'nilai' => round($nilai, 2),
+                            'hasil' => round($hasil, 2),
+                        ];
                     }
 
                     if ($rowError) {
@@ -255,10 +307,24 @@ class PenilaianController extends Controller
                         continue;
                     }
 
-                    Penilaian::create([
-                        'pegawai_id' => $pegawai->id,
-                        'penilaian' => $penilaian,
-                    ]);
+                    // Upsert by pegawai_id when available
+                    $pegawaiId = $pegawai->id ?? null;
+                    if ($pegawaiId) {
+                        $existing = Penilaian::where('pegawai_id', $pegawaiId)->first();
+                    } else {
+                        $existing = null;
+                    }
+
+                    if ($existing) {
+                        $existing->penilaian = $penilaian;
+                        $existing->pegawai_id = $pegawai->id;
+                        $existing->save();
+                    } else {
+                        $rec = new Penilaian();
+                        $rec->pegawai_id = $pegawai->id;
+                        $rec->penilaian = $penilaian;
+                        $rec->save();
+                    }
                     $created++;
                 }
                 DB::commit();
@@ -305,15 +371,24 @@ class PenilaianController extends Controller
 
             $subNames = array_slice($headers, 1);
 
-            // Build lookup for subindikator name -> id (normalized)
-            $allSub = SubIndikator::all();
+            // Build lookup for subindikator name -> model (normalized)
+            $allSub = SubIndikator::with('indikator')->get();
             $subMap = [];
             foreach ($allSub as $s) {
                 $key = $this->normalizeName($s->subindikator ?? null);
                 if ($key === '') {
                     continue;
                 }
-                $subMap[$key] = $s->id;
+                $subMap[$key] = $s;
+            }
+
+            // Load all standar kompetensi into map [jenis_jabatan_id][subindikator_id] => standar
+            $allStandar = StandarKompetensiMsk::all();
+            $standarMap = [];
+            foreach ($allStandar as $st) {
+                $jid = $st->jenis_jabatan_id;
+                $sid = $st->subindikator_id;
+                $standarMap[$jid][$sid] = (float) $st->standar;
             }
 
             $missingCols = [];
@@ -362,8 +437,36 @@ class PenilaianController extends Controller
                         break;
                     }
 
-                    $subId = $subMap[$this->normalizeName($subNames[$c])];
-                    $penilaian[$subId] = number_format((float) $value, 2, '.', '');
+                    $subKey = $this->normalizeName($subNames[$c]);
+                    $sub = $subMap[$subKey] ?? null;
+                    if (!$sub) {
+                        $rowError = "Unknown subindikator for '{$subNames[$c]}'";
+                        break;
+                    }
+
+                    $subId = $sub->id;
+                    $nilai = (float) $value;
+                    $bobot = (float) ($sub->bobot ?? 0);
+                    $indikatorPen = strtolower($sub->indikator->penilaian ?? '');
+                    $usesStandar = preg_match('/manajerial|sosial|kompetensi/i', $indikatorPen);
+
+                    $hasil = 0.0;
+                    if ($usesStandar) {
+                        $jid = $pegawai->jenis_jabatan_id ?? null;
+                        $standar = $jid && isset($standarMap[$jid][$subId]) ? (float) $standarMap[$jid][$subId] : 0.0;
+                        if ($standar > 0) {
+                            $hasil = ($nilai / $standar) * 100.0 * ($bobot / 100.0);
+                        } else {
+                            $hasil = 0.0;
+                        }
+                    } else {
+                        $hasil = $nilai * ($bobot / 100.0);
+                    }
+
+                    $penilaian[$subId] = [
+                        'nilai' => round($nilai, 2),
+                        'hasil' => round($hasil, 2),
+                    ];
                 }
 
                 if ($rowError) {
@@ -371,11 +474,27 @@ class PenilaianController extends Controller
                     continue;
                 }
 
-                // Create new penilaian record
-                Penilaian::create([
-                    'pegawai_id' => $pegawai->id,
-                    'penilaian' => $penilaian,
-                ]);
+                // Upsert by pegawai_user_id when available
+                $userKey = $pegawai->pegawai_id ?? null;
+                if ($userKey) {
+                    $existing = Penilaian::where('pegawai_user_id', $userKey)->first();
+                } else {
+                    $existing = null;
+                }
+
+                if ($existing) {
+                    $existing->penilaian = $penilaian;
+                    $existing->pegawai_id = $pegawai->id;
+                    $existing->save();
+                } else {
+                    $rec = new Penilaian();
+                    $rec->pegawai_id = $pegawai->id;
+                    if ($userKey) {
+                        $rec->pegawai_user_id = $userKey;
+                    }
+                    $rec->penilaian = $penilaian;
+                    $rec->save();
+                }
                 $created++;
             }
             DB::commit();

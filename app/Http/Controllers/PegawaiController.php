@@ -15,7 +15,7 @@ class PegawaiController extends Controller
     {
         // Set time limit to 10 minutes for sync operation
         set_time_limit(600);
-        
+
         try {
             Artisan::call('sync:pegawai');
             $output = Artisan::output();
@@ -35,7 +35,6 @@ class PegawaiController extends Controller
                 'summary' => $summary ?? '',
                 'message' => $completed ? 'Synchronization completed successfully!' : 'Synchronization triggered',
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -55,8 +54,10 @@ class PegawaiController extends Controller
             $perPage = $request->get('per_page', 15);
             $perPage = min(max((int)$perPage, 1), 100);
 
-            // allow overriding the method param via query param ?withPenilaian=true
-            $withPenilaian = $request->boolean('withPenilaian', $withPenilaian);
+            // allow overriding via query params `withPenilaian` or `with_penilaian` (snake_case from FE)
+            $withPenilaian = $request->boolean('with_penilaian', $request->boolean('withPenilaian', $withPenilaian));
+
+            $withPagination = $request->boolean('with_pagination', true);
 
             // join to peta_jabatan and jenis_jabatan so we can order and select jenis_jabatan name
             $query = Pegawai::query()
@@ -71,15 +72,15 @@ class PegawaiController extends Controller
             // Example: ?key=andi will match name, nip, email, unit_organisasi_name, jabatan_name, jenis_jabatan, golongan
             if ($request->filled('q')) {
                 $k = $request->get('q');
-                                $query->where(function ($q) use ($k) {
-                                        $q->where('pegawai.name', 'ilike', "%{$k}%")
-                                            ->orWhere('nip', 'ilike', "%{$k}%")
-                                            ->orWhere('email', 'ilike', "%{$k}%")
-                                            ->orWhere('unit_organisasi_name', 'ilike', "%{$k}%")
-                                            ->orWhere('jabatan_name', 'ilike', "%{$k}%")
-                                            ->orWhere('jenis_jabatan.name', 'ilike', "%{$k}%")
-                                            ->orWhere('golongan', 'ilike', "%{$k}%");
-                                });
+                $query->where(function ($q) use ($k) {
+                    $q->where('pegawai.name', 'ilike', "%{$k}%")
+                        ->orWhere('nip', 'ilike', "%{$k}%")
+                        ->orWhere('email', 'ilike', "%{$k}%")
+                        ->orWhere('unit_organisasi_name', 'ilike', "%{$k}%")
+                        ->orWhere('jabatan_name', 'ilike', "%{$k}%")
+                        ->orWhere('jenis_jabatan.name', 'ilike', "%{$k}%")
+                        ->orWhere('golongan', 'ilike', "%{$k}%");
+                });
             }
 
             if ($request->filled('unit_organisasi_name')) {
@@ -102,11 +103,37 @@ class PegawaiController extends Controller
             // Order first by peta_jabatan.kelas_jabatan interpreted as number (desc, NULLS LAST), then by name
             // Use regex to ensure only pure digits are cast to avoid errors on non-numeric values.
             $query->orderByRaw("(CASE WHEN peta_jabatan.kelas_jabatan ~ '^[0-9]+$' THEN CAST(peta_jabatan.kelas_jabatan AS integer) ELSE NULL END) DESC NULLS LAST");
+
+            if (!$withPagination) {
+                $perPage = PHP_INT_MAX;
+            }
+            
             $pegawai = $query->orderBy('name')->paginate($perPage);
 
+            // If requested, preload subindikator -> kategori map so we can compute sums
+            $subKategoriMap = null;
+            if ($withPenilaian) {
+                $subs = \App\Models\SubIndikator::with('indikator')->get();
+                $subKategoriMap = [];
+                foreach ($subs as $s) {
+                    $pid = $s->id;
+                    $indikatorPen = strtolower($s->indikator->penilaian ?? '');
+                    if (strpos($indikatorPen, 'potensial') !== false || strpos($indikatorPen, 'potensi') !== false) {
+                        $subKategoriMap[$pid] = 'potensial';
+                    } elseif (strpos($indikatorPen, 'kinerja') !== false) {
+                        $subKategoriMap[$pid] = 'kinerja';
+                    } else {
+                        // default: consider as kinerja
+                        $subKategoriMap[$pid] = 'kinerja';
+                    }
+                }
+            }
+
             // Transform data to only include required fields
-            $data = $pegawai->map(function ($item) {
-                return [
+            $data = $pegawai->map(function ($item) use ($withPenilaian, $subKategoriMap) {
+                $penObj = $item->penilaian ? $item->penilaian->penilaian : null;
+
+                $result = [
                     'nip' => $item->nip,
                     'nama' => $item->name,
                     'email' => $item->email,
@@ -116,8 +143,36 @@ class PegawaiController extends Controller
                     'lokasi_kerja' => $item->lokasi_kerja,
                     'jenis_jabatan' => str_replace('Jabatan Fungsional', 'JF', str_replace('Jabatan Pimpinan Tinggi', 'JPT', $item->jenis_jabatan)),
                     'golongan' => $item->golongan,
-                    'penilaian' => $item->penilaian ? $item->penilaian->penilaian : null,
+                    'penilaian' => $penObj,
                 ];
+
+                if ($withPenilaian) {
+                    $nilaiPot = 0.0;
+                    $nilaiKin = 0.0;
+                    if (is_array($penObj)) {
+                        foreach ($penObj as $subId => $val) {
+                            $hasil = null;
+                            if (is_array($val) && array_key_exists('hasil', $val)) {
+                                $hasil = (float) $val['hasil'];
+                            } elseif (is_numeric($val)) {
+                                // legacy numeric value stored directly
+                                $hasil = (float) $val;
+                            }
+                            if ($hasil === null) continue;
+                            $kategori = $subKategoriMap[$subId] ?? 'kinerja';
+                            if ($kategori === 'potensial') {
+                                $nilaiPot += $hasil;
+                            } else {
+                                $nilaiKin += $hasil;
+                            }
+                        }
+                    }
+
+                    $result['nilai_potensial'] = round($nilaiPot, 2);
+                    $result['nilai_kinerja'] = round($nilaiKin, 2);
+                }
+
+                return $result;
             });
 
             return response()->json([
@@ -130,7 +185,6 @@ class PegawaiController extends Controller
                     'total' => $pegawai->total(),
                 ],
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -174,7 +228,6 @@ class PegawaiController extends Controller
                     'updated_at' => $pegawai->updated_at,
                 ],
             ], 200);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
