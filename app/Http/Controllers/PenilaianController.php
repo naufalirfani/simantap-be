@@ -1,0 +1,391 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Pegawai;
+use App\Models\Penilaian;
+use App\Models\SubIndikator;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+
+class PenilaianController extends Controller
+{
+    public function index(Request $request)
+    {
+        try {
+            $query = Penilaian::query();
+            if ($request->filled('pegawai_id')) {
+                $query->where('pegawai_id', $request->get('pegawai_id'));
+            }
+
+            $perPage = (int) $request->get('per_page', 15);
+            $perPage = max(1, min($perPage, 100));
+
+            return response()->json($query->orderBy('id', 'desc')->paginate($perPage));
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    private function normalizeName(?string $s): string
+    {
+        if ($s === null) {
+            return '';
+        }
+        $s = trim(mb_strtolower($s));
+        // transliterate accents to ASCII when possible
+        $trans = @iconv('UTF-8', 'ASCII//TRANSLIT', $s);
+        if ($trans !== false) {
+            $s = $trans;
+        }
+        // replace non-alphanumeric with single space
+        $s = preg_replace('/[^a-z0-9]+/i', ' ', $s);
+        $s = preg_replace('/\s+/', ' ', $s);
+        return trim($s);
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'pegawai_id' => 'required|exists:pegawai,id',
+            'penilaian' => 'required|array',
+            'penilaian.*' => 'required|numeric',
+        ]);
+
+        // Validate keys are UUIDs and correspond to existing SubIndikator ids
+        $keys = array_keys($data['penilaian']);
+        $uuidPattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+        foreach ($keys as $k) {
+            if (!preg_match($uuidPattern, $k)) {
+                return response()->json(['message' => "Invalid subindikator_id: {$k}"], 422);
+            }
+        }
+
+        $existing = SubIndikator::whereIn('id', $keys)->pluck('id')->all();
+        if (count($existing) !== count($keys)) {
+            $missing = array_diff($keys, $existing);
+            return response()->json(['message' => 'Some subindikator_id not found', 'missing' => array_values($missing)], 422);
+        }
+
+        // Ensure values have 2 decimal places and store as formatted string
+        $penilaian = [];
+        foreach ($data['penilaian'] as $k => $v) {
+            $penilaian[$k] = number_format((float) $v, 2, '.', '');
+        }
+
+        $record = Penilaian::create([
+            'pegawai_id' => $data['pegawai_id'],
+            'penilaian' => $penilaian,
+        ]);
+
+        return response()->json($record, 201);
+    }
+
+    public function show($id)
+    {
+        // Treat $id as pegawai NIP: find pegawai, then its latest penilaian
+        $pegawai = Pegawai::where('nip', $id)->first();
+
+        if (!$pegawai) {
+            return response()->json(null, 200);
+        }
+
+        $record = Penilaian::where('pegawai_id', $pegawai->id)->orderBy('created_at', 'desc')->first();
+
+        if (!$record) {
+            return response()->json(null, 200);
+        }
+
+        return response()->json($record);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $data = $request->validate([
+            'pegawai_id' => 'sometimes|required|exists:pegawai,id',
+            'penilaian' => 'sometimes|required|array',
+            'penilaian.*' => 'required_with:penilaian|numeric',
+        ]);
+
+        $record = Penilaian::findOrFail($id);
+
+        if (isset($data['penilaian'])) {
+            $keys = array_keys($data['penilaian']);
+            $uuidPattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+            foreach ($keys as $k) {
+                if (!preg_match($uuidPattern, $k)) {
+                    return response()->json(['message' => "Invalid subindikator_id: {$k}"], 422);
+                }
+            }
+
+            $existing = SubIndikator::whereIn('id', $keys)->pluck('id')->all();
+            if (count($existing) !== count($keys)) {
+                $missing = array_diff($keys, $existing);
+                return response()->json(['message' => 'Some subindikator_id not found', 'missing' => array_values($missing)], 422);
+            }
+
+            $penilaian = [];
+            foreach ($data['penilaian'] as $k => $v) {
+                $penilaian[$k] = number_format((float) $v, 2, '.', '');
+            }
+            $record->penilaian = $penilaian;
+        }
+        if (isset($data['pegawai_id'])) {
+            $record->pegawai_id = $data['pegawai_id'];
+        }
+
+        $record->save();
+
+        return response()->json($record);
+    }
+
+    public function destroy($id)
+    {
+        $record = Penilaian::findOrFail($id);
+        $record->delete();
+        return response()->json(null, 204);
+    }
+
+    /**
+     * Bulk upload penilaian via Excel or CSV.
+     * Expected columns: nip, <subindikator name 1>, <subindikator name 2>, ...
+     */
+    public function bulk(Request $request)
+    {
+        // Support JSON payload from BE: { "penilaians": [ { "_rowIndex":2, "nip":"...", "nama":"...", "Sub A":"", "Sub B":"1.0" } ] }
+        if ($request->has('penilaians')) {
+            $rows = $request->get('penilaians');
+            if (!is_array($rows) || count($rows) === 0) {
+                return response()->json(['message' => 'penilaians must be a non-empty array'], 422);
+            }
+
+            // Determine subindikator column names. Prefer explicit `headers` array from payload.
+            $metaKeys = ['_rowIndex', 'nip', 'nama'];
+            $metaKeysLower = array_map('strtolower', $metaKeys);
+
+            if ($request->has('headers') && is_array($request->get('headers'))) {
+                $headers = array_map(function ($h) {
+                    return trim((string) $h);
+                }, $request->get('headers'));
+
+                // require at least 'nip' present in headers
+                $lowerHeaders = array_map('strtolower', $headers);
+                if (!in_array('nip', $lowerHeaders, true)) {
+                    return response()->json(['message' => "Headers must include 'nip' column"], 422);
+                }
+
+                $subNames = array_values(array_filter($headers, function ($h) use ($metaKeysLower) {
+                    return !in_array(strtolower($h), $metaKeysLower, true);
+                }));
+            } else {
+                $first = $rows[0];
+                if (!is_array($first)) {
+                    return response()->json(['message' => 'Invalid row format'], 422);
+                }
+
+                $subNames = array_values(array_filter(array_keys($first), function ($k) use ($metaKeysLower) {
+                    return !in_array(strtolower($k), $metaKeysLower, true);
+                }));
+            }
+
+            if (count($subNames) === 0) {
+                return response()->json(['message' => 'No subindikator columns found in payload'], 422);
+            }
+
+            $allSub = SubIndikator::all();
+            $subMap = [];
+            foreach ($allSub as $s) {
+                $key = $this->normalizeName($s->subindikator ?? null);
+                if ($key === '') {
+                    continue;
+                }
+                $subMap[$key] = $s->id;
+            }
+
+            $missingCols = [];
+            foreach ($subNames as $sn) {
+                $key = $this->normalizeName($sn);
+                if (!isset($subMap[$key])) {
+                    $missingCols[] = $sn;
+                }
+            }
+            if (count($missingCols) > 0) {
+                return response()->json(['message' => 'Some subindikator columns not found', 'missing' => array_values($missingCols)], 422);
+            }
+
+            $created = 0;
+            $failed = [];
+            DB::beginTransaction();
+            try {
+                foreach ($rows as $r) {
+                    $rowIndex = $r['_rowIndex'] ?? null;
+                    $nip = isset($r['nip']) ? trim((string) $r['nip']) : '';
+                    if ($nip === '') {
+                        $failed[] = ['row' => $rowIndex, 'reason' => 'Empty NIP'];
+                        continue;
+                    }
+
+                    $pegawai = Pegawai::where('nip', $nip)->first();
+                    if (!$pegawai) {
+                        $failed[] = ['row' => $rowIndex, 'nip' => $nip, 'reason' => 'Pegawai not found'];
+                        continue;
+                    }
+
+                    $penilaian = [];
+                    $rowError = null;
+                    foreach ($subNames as $sn) {
+                        $value = array_key_exists($sn, $r) ? $r[$sn] : '';
+                        if (is_null($value) || $value === '') {
+                            $rowError = "Empty value for '{$sn}'";
+                            break;
+                        }
+                        if (!is_numeric($value)) {
+                            $rowError = "Non-numeric value for '{$sn}'";
+                            break;
+                        }
+                        $subId = $subMap[$this->normalizeName($sn)];
+                        $penilaian[$subId] = number_format((float) $value, 2, '.', '');
+                    }
+
+                    if ($rowError) {
+                        $failed[] = ['row' => $rowIndex, 'nip' => $nip, 'reason' => $rowError];
+                        continue;
+                    }
+
+                    Penilaian::create([
+                        'pegawai_id' => $pegawai->id,
+                        'penilaian' => $penilaian,
+                    ]);
+                    $created++;
+                }
+                DB::commit();
+                return response()->json(['success' => true, 'created' => $created, 'failed' => $failed], 200);
+            } catch (\Exception $e) {
+                DB::rollBack();
+                return response()->json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+            }
+        }
+
+        // Fallback: accept uploaded spreadsheet file
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:5120',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Invalid file upload', 'errors' => $validator->errors()], 422);
+        }
+
+        $file = $request->file('file');
+
+        try {
+            $spreadsheet = IOFactory::load($file->getRealPath());
+            $sheet = $spreadsheet->getActiveSheet();
+
+            $highestRow = (int) $sheet->getHighestDataRow();
+            $highestColumn = $sheet->getHighestDataColumn();
+            $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
+
+            if ($highestRow < 2 || $highestColumnIndex < 2) {
+                return response()->json(['message' => 'Spreadsheet must contain header row and at least one data row and one subindikator column'], 422);
+            }
+
+            // Read header row
+            $headers = [];
+            for ($col = 1; $col <= $highestColumnIndex; $col++) {
+                $h = trim((string) $sheet->getCell([$col, 1])->getValue());
+                $headers[] = $h;
+            }
+
+            if (count($headers) < 2 || strtolower($headers[0]) !== 'nip') {
+                return response()->json(['message' => "First column must be 'nip'"], 422);
+            }
+
+            $subNames = array_slice($headers, 1);
+
+            // Build lookup for subindikator name -> id (normalized)
+            $allSub = SubIndikator::all();
+            $subMap = [];
+            foreach ($allSub as $s) {
+                $key = $this->normalizeName($s->subindikator ?? null);
+                if ($key === '') {
+                    continue;
+                }
+                $subMap[$key] = $s->id;
+            }
+
+            $missingCols = [];
+            foreach ($subNames as $sn) {
+                $key = $this->normalizeName($sn);
+                if (!isset($subMap[$key])) {
+                    $missingCols[] = $sn;
+                }
+            }
+
+            if (count($missingCols) > 0) {
+                return response()->json(['message' => 'Some subindikator columns not found', 'missing' => array_values($missingCols)], 422);
+            }
+
+            $created = 0;
+            $failed = [];
+
+            DB::beginTransaction();
+            for ($row = 2; $row <= $highestRow; $row++) {
+                $nip = trim((string) $sheet->getCell([1, $row])->getValue());
+                if ($nip === '') {
+                    $failed[] = ['row' => $row, 'reason' => 'Empty NIP'];
+                    continue;
+                }
+
+                $pegawai = Pegawai::where('nip', $nip)->first();
+                if (!$pegawai) {
+                    $failed[] = ['row' => $row, 'nip' => $nip, 'reason' => 'Pegawai not found'];
+                    continue;
+                }
+
+                $penilaian = [];
+                $rowError = null;
+                    for ($c = 0; $c < count($subNames); $c++) {
+                    $colIndex = $c + 2; // column 2 onwards
+                    $value = $sheet->getCell([$colIndex, $row])->getCalculatedValue();
+                    $value = is_null($value) ? '' : trim((string) $value);
+
+                    if ($value === '') {
+                        $rowError = "Empty value for '{$subNames[$c]}'";
+                        break;
+                    }
+
+                    if (!is_numeric($value)) {
+                        $rowError = "Non-numeric value for '{$subNames[$c]}'";
+                        break;
+                    }
+
+                    $subId = $subMap[$this->normalizeName($subNames[$c])];
+                    $penilaian[$subId] = number_format((float) $value, 2, '.', '');
+                }
+
+                if ($rowError) {
+                    $failed[] = ['row' => $row, 'nip' => $nip, 'reason' => $rowError];
+                    continue;
+                }
+
+                // Create new penilaian record
+                Penilaian::create([
+                    'pegawai_id' => $pegawai->id,
+                    'penilaian' => $penilaian,
+                ]);
+                $created++;
+            }
+            DB::commit();
+
+            return response()->json(['success' => true, 'created' => $created, 'failed' => $failed], 200);
+        } catch (\PhpOffice\PhpSpreadsheet\Reader\Exception $e) {
+            return response()->json(['message' => 'Failed to parse spreadsheet', 'error' => $e->getMessage()], 500);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+        }
+    }
+}

@@ -5,22 +5,25 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\JenisJabatan;
+use App\Models\SubIndikator;
 
-class Instrumen extends Model
+class StandarKompetensiMsk extends Model
 {
     use HasFactory, HasUuids;
 
-    protected $table = 'instrumens';
+    protected $table = 'standar_kompetensi_msk';
 
     protected $fillable = [
-        'instrumen',
-        'skor',
+        'jenis_jabatan_id',
         'subindikator_id',
+        'standar',
     ];
 
-    protected $casts = [
-        'skor' => 'decimal:2',
-    ];
+    public function jenisJabatan()
+    {
+        return $this->belongsTo(JenisJabatan::class, 'jenis_jabatan_id');
+    }
 
     public function subindikator()
     {

@@ -18,6 +18,9 @@ class DatabaseSeeder extends Seeder
         $this->call([
             IndikatorSeeder::class,
             SubIndikatorSeeder::class,
+            InstrumenSeeder::class,
+            JenisJabatanSeeder::class,
+            StandarKompetensiMskSeeder::class,
         ]);
     }
 }

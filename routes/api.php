@@ -6,6 +6,9 @@ use App\Http\Controllers\PegawaiController;
 use App\Http\Controllers\PetaJabatanController;
 use App\Http\Controllers\StatistikController;
 use App\Http\Controllers\SubIndikatorController;
+use App\Http\Controllers\DaftarKotakController;
+use App\Http\Controllers\PenilaianController;
+use App\Http\Controllers\StandarKompetensiMskController;
 use Illuminate\Support\Facades\Route;
 
 // Apply API token, logging and IP whitelist middleware to all API routes
@@ -16,6 +19,8 @@ Route::apiResource('indikators', IndikatorController::class);
 
 // SubIndikator Routes
 Route::apiResource('subindikators', SubIndikatorController::class);
+// Bulk update bobot for subindikators; updates parent indikator bobot automatically
+Route::post('subindikators/bulk-bobot', [SubIndikatorController::class, 'bulkUpdateBobot']);
 
 // Instrumen Routes
 Route::apiResource('instrumens', InstrumenController::class);
@@ -31,7 +36,19 @@ Route::get('pegawai', [PegawaiController::class, 'index']);
 Route::post('pegawai/sync', [PegawaiController::class, 'sync']);
 Route::get('pegawai/{nip}', [PegawaiController::class, 'show']);
 
+// Penilaian Routes
+Route::apiResource('penilaians', PenilaianController::class);
+// Bulk upload penilaian via Excel/CSV
+Route::post('penilaians/bulk', [PenilaianController::class, 'bulk']);
+// Standar Kompetensi MSK CRUD
+Route::apiResource('standar-kompetensi-msk', StandarKompetensiMskController::class);
+// Bulk update standar kompetensi
+Route::post('standar-kompetensi-msk/bulk', [StandarKompetensiMskController::class, 'bulkUpdate']);
+
 // Statistik Routes
 Route::get('statistik', [StatistikController::class, 'index']);
 Route::post('statistik/sync', [StatistikController::class, 'sync']);
+// Daftar Kotak (intervals + kotak) Routes
+Route::get('daftar-kotak', [DaftarKotakController::class, 'index']);
+Route::post('daftar-kotak', [DaftarKotakController::class, 'store']);
 });

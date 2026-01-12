@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Statistik;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 
 class StatistikController extends Controller

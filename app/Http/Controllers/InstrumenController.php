@@ -13,7 +13,7 @@ class InstrumenController extends Controller
      */
     public function index()
     {
-        $instrumens = Instrumen::with('subIndikator')->get();
+        $instrumens = Instrumen::with('subindikator')->get();
         return response()->json([
             'success' => true,
             'data' => $instrumens
@@ -27,7 +27,7 @@ class InstrumenController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'instrumen' => 'required|string|max:255',
-            'bobot' => 'required|numeric|min:0|max:999.99',
+            'skor' => 'required|numeric|min:0|max:999.99',
             'subindikator_id' => 'required|uuid|exists:subindikators,id',
         ]);
 
@@ -83,7 +83,7 @@ class InstrumenController extends Controller
 
         $validator = Validator::make($request->all(), [
             'instrumen' => 'sometimes|string|max:255',
-            'bobot' => 'sometimes|numeric|min:0|max:999.99',
+            'skor' => 'sometimes|numeric|min:0|max:999.99',
             'subindikator_id' => 'sometimes|uuid|exists:subindikators,id',
         ]);
 

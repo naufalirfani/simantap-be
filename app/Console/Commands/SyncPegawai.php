@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Models\Pegawai;
+use App\Models\PetaJabatan;
+use App\Models\JenisJabatan;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -129,7 +131,10 @@ class SyncPegawai extends Command
         $this->info('Starting database sync...');
         Log::info('Starting database sync', ['total_records' => count($data)]);
 
-        DB::transaction(function () use ($data) {
+        // Pre-fetch jenis_jabatan mapping for performance
+        $jenisJabatanMap = JenisJabatan::pluck('id', 'name')->toArray();
+
+        DB::transaction(function () use ($data, $jenisJabatanMap) {
             $synced = 0;
             $updated = 0;
             $inserted = 0;
@@ -147,6 +152,31 @@ class SyncPegawai extends Command
                     $pegawaiId = $item['id'];
                     $exists = Pegawai::where('pegawai_id', $pegawaiId)->exists();
 
+                    // Try to resolve peta_jabatan_id by matching jabatan and unit
+                    $petaJabatanId = null;
+                    try {
+                        $jabatanName = $item['jabatan_name'] ?? null;
+                        $unitName = $item['unit_organisasi_name'] ?? null;
+
+                        if ($jabatanName) {
+                            // perform case-insensitive matching using lower() to support multiple DBs
+                            $q = PetaJabatan::query()->whereRaw('lower(nama_jabatan) = ?', [strtolower($jabatanName)]);
+                            if ($unitName) {
+                                $q->whereRaw('lower(unit_kerja) = ?', [strtolower($unitName)]);
+                            }
+
+                            $found = $q->first();
+                            if ($found) {
+                                $petaJabatanId = $found->id;
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        Log::warning('Error resolving peta_jabatan_id: ' . $e->getMessage(), ['nip' => $item['nip'] ?? null]);
+                    }
+
+                    // Resolve jenis_jabatan_id based on eselonLevel and jabatan_name patterns
+                    $jenisJabatanId = $this->resolveJenisJabatanId($item, $jenisJabatanMap);
+
                     $pegawaiData = [
                         'pegawai_id' => $pegawaiId,
                         'nip' => $item['nip'],
@@ -155,6 +185,8 @@ class SyncPegawai extends Command
                         'unit_organisasi_name' => $item['unit_organisasi_name'] ?? null,
                         'jabatan_name' => $item['jabatan_name'] ?? null,
                         'jenis_jabatan' => $item['jenis_jabatan'] ?? null,
+                        'jenis_jabatan_id' => $jenisJabatanId,
+                        'peta_jabatan_id' => $petaJabatanId,
                         'golongan' => $item['golongan'] ?? null,
                         'json' => $item['json'] ?? [],
                         'avatar' => $item['avatar'] ?? null,
@@ -198,5 +230,63 @@ class SyncPegawai extends Command
                 'errors' => $errors,
             ]);
         });
+    }
+
+    /**
+     * Resolve jenis_jabatan_id based on eselonLevel and jabatan_name patterns
+     */
+    private function resolveJenisJabatanId(array $item, array $jenisJabatanMap): ?string
+    {
+        $json = $item['json'] ?? [];
+        $eselonLevel = $json['eselonLevel'] ?? null;
+        $jabatanName = $item['jabatan_name'] ?? '';
+        $jenisJabatan = strtolower($item['jenis_jabatan'] ?? '');
+
+        // Map based on eselonLevel
+        if ($eselonLevel === '0') {
+            return $jenisJabatanMap['Jabatan Pimpinan Tinggi Utama'] ?? null;
+        }
+        if ($eselonLevel === '1') {
+            return $jenisJabatanMap['Jabatan Pimpinan Tinggi Madya'] ?? null;
+        }
+        if ($eselonLevel === '2') {
+            return $jenisJabatanMap['Jabatan Pimpinan Tinggi Pratama'] ?? null;
+        }
+        if ($eselonLevel === '3') {
+            return $jenisJabatanMap['Jabatan Administrator'] ?? null;
+        }
+        if ($eselonLevel === '4') {
+            return $jenisJabatanMap['Jabatan Pengawas'] ?? null;
+        }
+
+        // Map based on jabatan_name patterns (check in order of specificity)
+        if (stripos($jabatanName, 'Ahli Utama') !== false) {
+            return $jenisJabatanMap['Fungsional Utama'] ?? null;
+        }
+        if (stripos($jabatanName, 'Ahli Madya') !== false) {
+            return $jenisJabatanMap['Fungsional Madya'] ?? null;
+        }
+        if (stripos($jabatanName, 'Ahli Muda') !== false) {
+            return $jenisJabatanMap['Fungsional Muda'] ?? null;
+        }
+        if (stripos($jabatanName, 'Ahli Pertama') !== false) {
+            return $jenisJabatanMap['Fungsional Pertama'] ?? null;
+        }
+        if (stripos($jabatanName, 'Penyelia') !== false) {
+            return $jenisJabatanMap['Fungsional Penyelia'] ?? null;
+        }
+        if (stripos($jabatanName, 'Mahir') !== false) {
+            return $jenisJabatanMap['Fungsional Mahir'] ?? null;
+        }
+        if (stripos($jabatanName, 'Terampil') !== false) {
+            return $jenisJabatanMap['Fungsional Terampil'] ?? null;
+        }
+
+        // Map based on jenis_jabatan field
+        if ($jenisJabatan === 'pelaksana') {
+            return $jenisJabatanMap['Pelaksana'] ?? null;
+        }
+
+        return null;
     }
 }

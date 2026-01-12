@@ -29,6 +29,7 @@ class PegawaiController extends Controller
 
             $completed = strpos($output, 'Synchronization completed successfully!') !== false;
 
+            (new StatistikController())->sync();
             return response()->json([
                 'success' => true,
                 'summary' => $summary ?? '',
@@ -48,69 +49,59 @@ class PegawaiController extends Controller
      * Display a listing of pegawai.
      * Returns: Nama, Email, Avatar, NIP, Unit Kerja, Jabatan, Lokasi Kerja, Jenis Jabatan, Golongan
      */
-    public function index(Request $request)
+    public function index(Request $request, bool $withPenilaian = false)
     {
         try {
             $perPage = $request->get('per_page', 15);
             $perPage = min(max((int)$perPage, 1), 100);
 
-            $query = Pegawai::query();
+            // allow overriding the method param via query param ?withPenilaian=true
+            $withPenilaian = $request->boolean('withPenilaian', $withPenilaian);
+
+            // join to peta_jabatan and jenis_jabatan so we can order and select jenis_jabatan name
+            $query = Pegawai::query()
+                ->when($withPenilaian, function ($q) {
+                    $q->with('penilaian');
+                })
+                ->leftJoin('peta_jabatan', 'pegawai.peta_jabatan_id', '=', 'peta_jabatan.id')
+                ->leftJoin('jenis_jabatan', 'pegawai.jenis_jabatan_id', '=', 'jenis_jabatan.id')
+                ->select('pegawai.*', 'jenis_jabatan.name as jenis_jabatan');
 
             // `key` performs a broad search across most text columns (EXCLUDING the json column)
             // Example: ?key=andi will match name, nip, email, unit_organisasi_name, jabatan_name, jenis_jabatan, golongan
             if ($request->filled('q')) {
                 $k = $request->get('q');
-                $query->where(function ($q) use ($k) {
-                    $q->where('name', 'ilike', "%{$k}%")
-                      ->orWhere('nip', 'ilike', "%{$k}%")
-                      ->orWhere('email', 'ilike', "%{$k}%")
-                      ->orWhere('unit_organisasi_name', 'ilike', "%{$k}%")
-                      ->orWhere('jabatan_name', 'ilike', "%{$k}%")
-                      ->orWhere('jenis_jabatan', 'ilike', "%{$k}%")
-                      ->orWhere('golongan', 'ilike', "%{$k}%");
-                });
+                                $query->where(function ($q) use ($k) {
+                                        $q->where('pegawai.name', 'ilike', "%{$k}%")
+                                            ->orWhere('nip', 'ilike', "%{$k}%")
+                                            ->orWhere('email', 'ilike', "%{$k}%")
+                                            ->orWhere('unit_organisasi_name', 'ilike', "%{$k}%")
+                                            ->orWhere('jabatan_name', 'ilike', "%{$k}%")
+                                            ->orWhere('jenis_jabatan.name', 'ilike', "%{$k}%")
+                                            ->orWhere('golongan', 'ilike', "%{$k}%");
+                                });
             }
 
-            // Support `filter` parameter using keys from materialized view `statistik`.
-            // Accepts values like: struktural, fungsional, pelaksana, laki_laki, perempuan,
-            // total_jabatan_pimpinan_tinggi_madya, total_fungsional_utama, etc.
-            if ($request->filled('filter')) {
-                $filter = strtolower($request->get('filter'));
-
-                $map = [
-                    'struktural' => function ($q) { $q->where('jenis_jabatan', 'Struktural'); },
-                    'fungsional' => function ($q) { $q->where('jenis_jabatan', 'Fungsional'); },
-                    'pelaksana' => function ($q) { $q->where('jenis_jabatan', 'Pelaksana'); },
-
-                    'laki_laki' => function ($q) { $q->whereRaw("json->>'jenisKelamin' = ?", ['M']); },
-                    'perempuan' => function ($q) { $q->whereRaw("json->>'jenisKelamin' = ?", ['F']); },
-
-                    'jabatan_pimpinan_tinggi_madya' => function ($q) { $q->whereRaw("json->>'eselonLevel' = ?", ['1']); },
-                    'jabatan_pimpinan_tinggi_pratama' => function ($q) { $q->whereRaw("json->>'eselonLevel' = ?", ['2']); },
-                    'jabatan_administrator' => function ($q) { $q->whereRaw("json->>'eselonLevel' = ?", ['3']); },
-                    'jabatan_pengawas' => function ($q) { $q->whereRaw("json->>'eselonLevel' = ?", ['4']); },
-
-                    'fungsional_utama' => function ($q) { $q->whereRaw("jabatan_name ~ 'Ahli Utama'"); },
-                    'fungsional_madya' => function ($q) { $q->whereRaw("jabatan_name ~ 'Ahli Madya'"); },
-                    'fungsional_muda' => function ($q) { $q->whereRaw("jabatan_name ~ 'Ahli Muda'"); },
-                    'fungsional_pertama' => function ($q) { $q->whereRaw("jabatan_name ~ 'Ahli Pertama'"); },
-
-                    'fungsional_penyelia' => function ($q) { $q->whereRaw("jabatan_name ~ 'Penyelia'"); },
-                    'fungsional_mahir' => function ($q) { $q->whereRaw("jabatan_name ~ 'Mahir'"); },
-                    'fungsional_terampil' => function ($q) { $q->whereRaw("jabatan_name ~ 'Terampil'"); },
-                ];
-
-                if (isset($map[$filter])) {
-                    $map[$filter]($query);
-                } else {
-                    // allow variants without prefixes, e.g. 'struktural' already covered; if unknown, return 400
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Invalid filter provided',
-                    ], 400);
-                }
+            if ($request->filled('unit_organisasi_name')) {
+                $unitName = $request->get('unit_organisasi_name');
+                $query->whereRaw('lower(unit_organisasi_name) = ?', [strtolower($unitName)]);
+            }
+            if ($request->filled('jabatan_name')) {
+                $jabatanName = $request->get('jabatan_name');
+                $query->whereRaw('lower(jabatan_name) = ?', [strtolower($jabatanName)]);
+            }
+            if ($request->filled('jenis_jabatan')) {
+                $jenisJabatan = $request->get('jenis_jabatan');
+                $query->whereRaw('lower(jenis_jabatan.name) = ?', [strtolower($jenisJabatan)]);
+            }
+            if ($request->filled('golongan')) {
+                $golongan = $request->get('golongan');
+                $query->whereRaw('lower(golongan) = ?', [strtolower($golongan)]);
             }
 
+            // Order first by peta_jabatan.kelas_jabatan interpreted as number (desc, NULLS LAST), then by name
+            // Use regex to ensure only pure digits are cast to avoid errors on non-numeric values.
+            $query->orderByRaw("(CASE WHEN peta_jabatan.kelas_jabatan ~ '^[0-9]+$' THEN CAST(peta_jabatan.kelas_jabatan AS integer) ELSE NULL END) DESC NULLS LAST");
             $pegawai = $query->orderBy('name')->paginate($perPage);
 
             // Transform data to only include required fields
@@ -123,8 +114,9 @@ class PegawaiController extends Controller
                     'unit_kerja' => $item->unit_organisasi_name,
                     'jabatan' => $item->jabatan_name,
                     'lokasi_kerja' => $item->lokasi_kerja,
-                    'jenis_jabatan' => $item->jenis_jabatan,
+                    'jenis_jabatan' => str_replace('Jabatan Fungsional', 'JF', str_replace('Jabatan Pimpinan Tinggi', 'JPT', $item->jenis_jabatan)),
                     'golongan' => $item->golongan,
+                    'penilaian' => $item->penilaian ? $item->penilaian->penilaian : null,
                 ];
             });
 
@@ -155,7 +147,7 @@ class PegawaiController extends Controller
     public function show(string $nip)
     {
         try {
-            $pegawai = Pegawai::where('nip', $nip)->first();
+            $pegawai = Pegawai::where('nip', $nip)->join('jenis_jabatan', 'pegawai.jenis_jabatan_id', '=', 'jenis_jabatan.id')->select('pegawai.*', 'jenis_jabatan.name as jenis_jabatan')->first();
 
             if (!$pegawai) {
                 return response()->json([

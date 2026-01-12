@@ -15,7 +15,7 @@ class SubIndikatorController extends Controller
      */
     public function index()
     {
-        $subIndikators = SubIndikator::with(['indikator', 'instrumens'])->get();
+        $subIndikators = SubIndikator::with(['indikator', 'instrumens'])->orderBy('indikator_id')->get();
         return response()->json([
             'success' => true,
             'data' => $subIndikators
@@ -170,6 +170,66 @@ class SubIndikatorController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'SubIndikator berhasil dihapus'
+        ], 200);
+    }
+
+    /**
+     * Bulk update bobot for multiple SubIndikators and update parent Indikator bobot.
+     * Expected payload: { "subindikators": [ {"id":"...","bobot": 12.5}, ... ] }
+     */
+    public function bulkUpdateBobot(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'subindikators' => 'required|array|min:1',
+            'subindikators.*.id' => 'required|uuid|exists:subindikators,id',
+            'subindikators.*.bobot' => 'required|numeric|min:0|max:999.99',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $items = $request->input('subindikators');
+
+        $updatedSub = [];
+        DB::transaction(function () use ($items, &$updatedSub) {
+            $affectedIndikatorIds = [];
+
+            foreach ($items as $it) {
+                $sub = SubIndikator::find($it['id']);
+                if ($sub) {
+                    $sub->bobot = $it['bobot'];
+                    $sub->save();
+                    $updatedSub[] = $sub->fresh();
+                    $affectedIndikatorIds[$sub->indikator_id] = $sub->indikator_id;
+                }
+            }
+
+            // Recalculate and update parent indikator bobot for affected indikator ids
+            foreach (array_values($affectedIndikatorIds) as $indikatorId) {
+                $total = (float) SubIndikator::where('indikator_id', $indikatorId)->sum('bobot');
+                $parent = Indikator::find($indikatorId);
+                if ($parent) {
+                    $parent->bobot = $total;
+                    $parent->save();
+                }
+            }
+        });
+
+        // Return updated subindikators and updated indikator summaries
+        $indikatorIds = collect($updatedSub)->pluck('indikator_id')->unique()->values()->all();
+        $updatedIndikators = Indikator::whereIn('id', $indikatorIds)->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Bobot subindikator berhasil diperbarui dan bobot indikator diupdate otomatis',
+            'data' => [
+                'subindikators' => $updatedSub,
+                'indikators' => $updatedIndikators,
+            ]
         ], 200);
     }
 }
