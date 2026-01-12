@@ -185,15 +185,20 @@ class SyncPetaJabatan extends Command
                     'slug' => $item['slug'] ?? null,
                     'unit_kerja' => $item['unit_kerja'] ?? null,
                     'level' => $item['level'] ?? 0,
-                    // Set order_index according to response order (1-based)
-                    'order_index' => $item['order_index'] ?? $position,
+                    // Set order_index strictly according to response order (1-based)
+                    'order_index' => $position,
                     'bezetting' => $item['bezetting'] ?? 0,
                     'kebutuhan_pegawai' => $item['kebutuhan_pegawai'] ?? 0,
                     'is_pusat' => $item['is_pusat'] ?? false,
                     'jenis_jabatan' => $item['jenis_jabatan'] ?? null,
                     'jabatan_id' => $item['jabatan_id'] ?? null,
                     'kelas_jabatan' => $item['kelas_jabatan'] ?? null,
-                    'nama_pejabat' => json_encode($item['nama_pejabat'] ?? []),
+                    'pejabat' => json_encode(array_map(function ($p) {
+                        return [
+                            'nip' => $p['nip'] ?? null,
+                            'name' => $p['name'] ?? null,
+                        ];
+                    }, $item['pejabat'] ?? [])),
                     'updated_at' => now(),
                 ];
 

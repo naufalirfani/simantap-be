@@ -26,7 +26,7 @@ class PetaJabatan extends Model
         'jenis_jabatan',
         'jabatan_id',
         'kelas_jabatan',
-        'nama_pejabat',
+        'pejabat',
     ];
 
     protected $casts = [
@@ -35,7 +35,7 @@ class PetaJabatan extends Model
         'bezetting' => 'integer',
         'kebutuhan_pegawai' => 'integer',
         'is_pusat' => 'boolean',
-        'nama_pejabat' => 'array',
+        'pejabat' => 'array',
     ];
 
     public $incrementing = false;
