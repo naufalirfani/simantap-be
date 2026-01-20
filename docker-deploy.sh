@@ -24,7 +24,7 @@ fi
 # Pull latest
 echo "👉 Pulling latest changes for $REQUIRED_BRANCH"
 git fetch origin $REQUIRED_BRANCH
-git reset --hard origin/$REQUIRED_BRANCH
+git pull origin $REQUIRED_BRANCH
 
 # Build and deploy with Docker Compose (production)
 echo "👉 Deploying with Docker Compose (production) using $COMPOSE_FILE"
