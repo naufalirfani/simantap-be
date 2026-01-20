@@ -28,16 +28,20 @@ Route::apiResource('instrumens', InstrumenController::class);
 // Peta Jabatan Routes
 Route::get('peta-jabatan', [PetaJabatanController::class, 'index']);
 Route::get('peta-jabatan/tree', [PetaJabatanController::class, 'tree']);
+Route::get('peta-jabatan/tree-by-unit-kerja', [PetaJabatanController::class, 'treeByUnitKerja']);
 Route::post('peta-jabatan/sync', [PetaJabatanController::class, 'sync']);
 Route::get('peta-jabatan/{id}', [PetaJabatanController::class, 'show']);
 
 // Pegawai Routes
 Route::get('pegawai', [PegawaiController::class, 'index']);
 Route::post('pegawai/sync', [PegawaiController::class, 'sync']);
+Route::get('pegawai/rekomendasi/{peta_jabatan_id}', [PegawaiController::class, 'recommend']);
 Route::get('pegawai/{nip}', [PegawaiController::class, 'show']);
 
 // Penilaian Routes
 Route::apiResource('penilaians', PenilaianController::class);
+// Trigger recalculation / sync of all penilaian records
+Route::post('penilaians/sync', [PenilaianController::class, 'sync']);
 // Bulk upload penilaian via Excel/CSV
 Route::post('penilaians/bulk', [PenilaianController::class, 'bulk']);
 // Standar Kompetensi MSK CRUD

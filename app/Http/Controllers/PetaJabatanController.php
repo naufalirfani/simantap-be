@@ -29,16 +29,20 @@ class PetaJabatanController extends Controller
             // Load all models first so we can filter by pejabat (JSON) when requested
             $models = $query->get()->all();
 
+            // parse pejabat into arrays but do NOT enrich here; enrichment only shown when
+            // the `jabatan_kosong` parameter is present (hasJabatanKosongParam)
             $items = array_map(function ($model) {
                 $a = is_array($model) ? $model : $model->toArray();
                 $pej = $a['pejabat'] ?? null;
                 if (is_array($pej)) {
-                    $a['pejabat'] = $pej;
+                    $pejArray = $pej;
                 } elseif (is_string($pej)) {
-                    $a['pejabat'] = json_decode($pej, true) ?: [];
+                    $pejArray = json_decode($pej, true) ?: [];
                 } else {
-                    $a['pejabat'] = [];
+                    $pejArray = [];
                 }
+
+                $a['pejabat'] = $pejArray;
                 return $a;
             }, $models);
 
@@ -112,6 +116,44 @@ class PetaJabatanController extends Controller
 
                     return $jabatanKosong ? $isVacant : !$isVacant;
                 }));
+                // after filtering, enrich each pejabat entry with tglLahir, tanggal_pensiun and sisa_masa_kerja
+                foreach ($items as &$a) {
+                    $pejArray = $a['pejabat'] ?? [];
+                    $jenis = strtoupper(trim($a['jenis_jabatan'] ?? ''));
+                    $retirementAge = in_array($jenis, ['ESELON I / JPT MADYA', 'ESELON II / JPT PRATAMA'], true) ? 60 : 58;
+
+                    foreach ($pejArray as &$p) {
+                        $p = is_array($p) ? $p : (is_object($p) ? (array)$p : ['nama' => (string)$p]);
+                        $nipRaw = isset($p['nip']) ? (string)$p['nip'] : '';
+                        $nipDigits = preg_replace('/[^0-9]/', '', $nipRaw);
+                        $p['tglLahir'] = null;
+                        $p['tanggal_pensiun'] = null;
+                        $p['sisa_masa_kerja'] = null;
+                        $p['sisa_masa_kerja_days'] = null;
+
+                        if (strlen($nipDigits) >= 8) {
+                            $dobStr = substr($nipDigits, 0, 8); // YYYYMMDD
+                            try {
+                                $dob = Carbon::createFromFormat('Ymd', $dobStr);
+                                $p['tglLahir'] = $dob->toDateString();
+                                $retirementDate = $dob->copy()->addYears($retirementAge);
+                                $p['tanggal_pensiun'] = $retirementDate->toDateString();
+                                if ($retirementDate->lte(Carbon::now())) {
+                                    $p['sisa_masa_kerja'] = '0 tahun 0 bulan';
+                                    $p['sisa_masa_kerja_days'] = 0;
+                                } else {
+                                    $diff = Carbon::now()->diff($retirementDate);
+                                    $p['sisa_masa_kerja'] = sprintf('%d tahun %d bulan', $diff->y, $diff->m);
+                                    $p['sisa_masa_kerja_days'] = Carbon::now()->diffInDays($retirementDate);
+                                }
+                            } catch (\Exception $e) {
+                                // leave nulls if date parse fails
+                            }
+                        }
+                    }
+
+                    $a['pejabat'] = $pejArray;
+                }
             }
 
             $response = [
@@ -221,6 +263,96 @@ class PetaJabatanController extends Controller
         return response()->json([
             'success' => true,
             'data' => $tree
+        ], 200);
+    }
+
+    /**
+     * Get hierarchy tree unique by unit_kerja
+     * Returns nodes with only id, parent_id and unit_kerja
+     */
+    public function treeByUnitKerja()
+    {
+        $all = PetaJabatan::orderBy('level')->orderBy('order_index')->get();
+
+        // Normalize to simple arrays
+        $allArr = [];
+        foreach ($all as $m) {
+            $allArr[] = [
+                'id' => $m->id,
+                'parent_id' => $m->parent_id,
+                'unit_kerja' => $m->unit_kerja,
+            ];
+        }
+
+        // Map of original id -> item
+        $byId = [];
+        foreach ($allArr as $a) {
+            $byId[$a['id']] = $a;
+        }
+
+        // Build unique set keyed by unit_kerja (first occurrence wins)
+        $unitMap = [];
+        $uniqueItems = [];
+        foreach ($allArr as $a) {
+            $uk = trim((string)($a['unit_kerja'] ?? ''));
+            if ($uk === '') {
+                $uk = '__empty__' . $a['id'];
+            }
+            if (!isset($unitMap[$uk])) {
+                $unitMap[$uk] = $a;
+                $uniqueItems[$a['id']] = $a;
+            }
+        }
+
+        // Remap parent_id to representative ids (by unit_kerja)
+        $final = [];
+        foreach ($uniqueItems as $id => $item) {
+            $origPid = $item['parent_id'];
+            $newPid = null;
+            if ($origPid !== null) {
+                if (isset($byId[$origPid])) {
+                    $parentUnit = trim((string)($byId[$origPid]['unit_kerja'] ?? ''));
+                    if ($parentUnit === '') {
+                        $parentUnit = '__empty__' . $byId[$origPid]['id'];
+                    }
+                    if (isset($unitMap[$parentUnit])) {
+                        $newPid = $unitMap[$parentUnit]['id'];
+                        if ($newPid === $item['id']) {
+                            $newPid = null;
+                        }
+                    }
+                }
+            }
+
+            $final[$item['id']] = [
+                'id' => $item['id'],
+                'parent_id' => $newPid,
+                'unit_kerja' => $item['unit_kerja'],
+                'children' => [],
+            ];
+        }
+
+        // Build tree from remapped final items
+        $roots = [];
+        foreach ($final as $id => &$node) {
+            if ($node['parent_id'] === null) {
+                $roots[] = &$node;
+            } else {
+                $pid = $node['parent_id'];
+                if (isset($final[$pid])) {
+                    $final[$pid]['children'][] = &$node;
+                } else {
+                    $roots[] = &$node;
+                }
+            }
+        }
+
+        // Clean references and return
+        $result = array_values($roots);
+
+        return response()->json([
+            'success' => true,
+            'data' => $result,
         ], 200);
     }
 

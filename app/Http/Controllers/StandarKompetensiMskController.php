@@ -10,6 +10,14 @@ class StandarKompetensiMskController extends Controller
 {
     public function index(Request $request)
     {
+        if ($request->has('jenis_jabatan_id')) {
+            $jenisJabatanId = $request->query('jenis_jabatan_id');
+            $query = StandarKompetensiMsk::with(['jenisJabatan', 'subindikator'])
+                ->where('jenis_jabatan_id', $jenisJabatanId)
+                ->orderBy('id');
+            return response()->json($query->get());
+        }
+        
         $query = StandarKompetensiMsk::with(['jenisJabatan', 'subindikator'])->orderBy('id');
         return response()->json($query->get());
     }

@@ -149,7 +149,7 @@ class SubIndikatorSeeder extends Seeder
                 'indikator_id' => $rekamJejakJabatan->id,
             ],
             [
-                'subindikator' => 'Pengalaman dalam Organisasi',
+                'subindikator' => 'Pengalaman Jabatan',
                 'bobot' => 3.00,
                 'isactive' => true,
                 'indikator_id' => $rekamJejakJabatan->id,
@@ -162,7 +162,7 @@ class SubIndikatorSeeder extends Seeder
             ],
             // Pertimbangan lainnya
             [
-                'subindikator' => 'Pengalaman Organisasi',
+                'subindikator' => 'Penugasan dalam Tim Kerja',
                 'bobot' => 5.00,
                 'isactive' => true,
                 'indikator_id' => $pertimbanganLainnya->id,
