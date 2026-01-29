@@ -327,6 +327,16 @@ class PegawaiController extends Controller
                 }
             }
 
+            // Load syarat suksesi for this jabatan
+            $syaratSuksesi = \App\Models\SyaratSuksesi::where('jabatan_id', $peta_jabatan_id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+            
+            $syaratMap = [];
+            if ($syaratSuksesi && is_array($syaratSuksesi->syarat)) {
+                $syaratMap = $syaratSuksesi->syarat;
+            }
+
             if ($retensi) {
                 if ($mappedType !== null) {
                     $typesToUse = [$mappedType];
@@ -346,7 +356,7 @@ class PegawaiController extends Controller
             $pegawaiCandidates = Pegawai::with('penilaian')
                 ->join('jenis_jabatan', 'pegawai.jenis_jabatan_id', '=', 'jenis_jabatan.id')
                 ->whereIn('jenis_jabatan.name', $typesToUse)
-                ->select('pegawai.*')
+                ->select('pegawai.*', 'jenis_jabatan.name as jenis_jabatan')
                 ->get();
 
             $subs = \App\Models\SubIndikator::with('indikator')->get();
@@ -389,6 +399,39 @@ class PegawaiController extends Controller
             $candidates = [];
             foreach ($pegawaiCandidates as $item) {
                 $penObj = $item->penilaian ? $item->penilaian->penilaian : null;
+                
+                // Check if pegawai meets syarat suksesi requirements
+                $meetsSyarat = true;
+                if (!empty($syaratMap)) {
+                    if (!is_array($penObj)) {
+                        $penObj = [];
+                    }
+
+                    foreach ($syaratMap as $subId => $minNilai) {
+                        $pegawaiNilai = null;
+                        
+                        if (array_key_exists($subId, $penObj)) {
+                            $val = $penObj[$subId];
+                            if (is_array($val) && array_key_exists('nilai', $val)) {
+                                $pegawaiNilai = (float) $val['nilai'];
+                            } elseif (is_numeric($val)) {
+                                $pegawaiNilai = (float) $val;
+                            }
+                        }
+                        
+                        // If pegawai doesn't have nilai for this subindikator or nilai is less than minimum
+                        if ($pegawaiNilai === null || $pegawaiNilai < (float) $minNilai) {
+                            $meetsSyarat = false;
+                            break;
+                        }
+                    }
+                }
+                
+                // Skip this pegawai if they don't meet syarat suksesi
+                if (!$meetsSyarat) {
+                    continue;
+                }
+                
                 $nilaiPot = 0.0;
                 $nilaiKin = 0.0;
                 if (is_array($penObj)) {
@@ -477,6 +520,7 @@ class PegawaiController extends Controller
                     'unit_kerja' => $item->unit_organisasi_name,
                     'jabatan' => $item->jabatan_name,
                     'golongan' => $item->golongan,
+                    'jenis_jabatan' => $item->jenis_jabatan,
                     'penilaian' => $c['penObj'],
                     'nilai_potensial' => round($c['nilai_pot'], 2),
                     'nilai_kinerja' => round($c['nilai_kin'], 2),

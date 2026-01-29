@@ -16,27 +16,27 @@ class IndikatorSeeder extends Seeder
     {
         $indikators = [
             [
-                'indikator' => 'Penilaian Generik',
+                'indikator' => 'Penilaian Penguat',
                 'bobot' => 60.00,
                 'penilaian' => 'Kinerja',
             ],
             [
-                'indikator' => 'Penilaian Spesifik',
+                'indikator' => 'Penilaian Utama',
                 'bobot' => 40.00,
                 'penilaian' => 'Kinerja',
             ],
             [
                 'indikator' => 'Penilaian Kompetensi Manajerial dan Sosial Kultural',
-                'bobot' => 25.00,
+                'bobot' => 20.00,
                 'penilaian' => 'Potensial',
             ],
             [
                 'indikator' => 'Rekam Jejak Jabatan',
-                'bobot' => 30.00,
+                'bobot' => 35.00,
                 'penilaian' => 'Potensial',
             ],
             [
-                'indikator' => 'Pertimbangan lainnya',
+                'indikator' => 'Kualifikasi',
                 'bobot' => 20.00,
                 'penilaian' => 'Potensial',
             ],

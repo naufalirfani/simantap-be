@@ -80,7 +80,7 @@ class StandarKompetensiMskSeeder extends Seeder
                 'Pengambilan Keputusan' => 2,
                 'Perekat Bangsa' => 2,
             ],
-            'Jabatan Fungsional Utama' => [
+            'Jabatan Fungsional Ahli Utama' => [
                 'Integritas' => 5,
                 'Kerja Sama' => 4,
                 'Komunikasi' => 4,
@@ -91,7 +91,7 @@ class StandarKompetensiMskSeeder extends Seeder
                 'Pengambilan Keputusan' => 4,
                 'Perekat Bangsa' => 5,
             ],
-            'Jabatan Fungsional Madya' => [
+            'Jabatan Fungsional Ahli Madya' => [
                 'Integritas' => 4,
                 'Kerja Sama' => 4,
                 'Komunikasi' => 4,
@@ -102,7 +102,7 @@ class StandarKompetensiMskSeeder extends Seeder
                 'Pengambilan Keputusan' => 4,
                 'Perekat Bangsa' => 4,
             ],
-            'Jabatan Fungsional Muda' => [
+            'Jabatan Fungsional Ahli Muda' => [
                 'Integritas' => 3,
                 'Kerja Sama' => 3,
                 'Komunikasi' => 3,
@@ -113,7 +113,7 @@ class StandarKompetensiMskSeeder extends Seeder
                 'Pengambilan Keputusan' => 3,
                 'Perekat Bangsa' => 3,
             ],
-            'Jabatan Fungsional Pertama' => [
+            'Jabatan Fungsional Ahli Pertama' => [
                 'Integritas' => 2,
                 'Kerja Sama' => 2,
                 'Komunikasi' => 2,

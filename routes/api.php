@@ -9,6 +9,7 @@ use App\Http\Controllers\SubIndikatorController;
 use App\Http\Controllers\DaftarKotakController;
 use App\Http\Controllers\PenilaianController;
 use App\Http\Controllers\StandarKompetensiMskController;
+use App\Http\Controllers\SyaratSuksesiController;
 use Illuminate\Support\Facades\Route;
 
 // Apply API token, logging and IP whitelist middleware to all API routes
@@ -48,6 +49,9 @@ Route::post('penilaians/bulk', [PenilaianController::class, 'bulk']);
 Route::apiResource('standar-kompetensi-msk', StandarKompetensiMskController::class);
 // Bulk update standar kompetensi
 Route::post('standar-kompetensi-msk/bulk', [StandarKompetensiMskController::class, 'bulkUpdate']);
+
+// Syarat Suksesi Routes
+Route::apiResource('syarat-suksesi', SyaratSuksesiController::class);
 
 // Statistik Routes
 Route::get('statistik', [StatistikController::class, 'index']);

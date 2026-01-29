@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             IndikatorSeeder::class,
             SubIndikatorSeeder::class,
             InstrumenSeeder::class,
+            DaftarKotakSeeder::class,
             JenisJabatanSeeder::class,
             StandarKompetensiMskSeeder::class,
         ]);

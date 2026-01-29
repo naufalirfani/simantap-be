@@ -285,16 +285,16 @@ class SyncPegawai extends Command
 
         // Map based on jabatan_name patterns (check in order of specificity)
         if (stripos($jabatanName, 'Ahli Utama') !== false) {
-            return $jenisJabatanMap['Jabatan Fungsional Utama'] ?? null;
+            return $jenisJabatanMap['Jabatan Fungsional Ahli Utama'] ?? null;
         }
         if (stripos($jabatanName, 'Ahli Madya') !== false) {
-            return $jenisJabatanMap['Jabatan Fungsional Madya'] ?? null;
+            return $jenisJabatanMap['Jabatan Fungsional Ahli Madya'] ?? null;
         }
         if (stripos($jabatanName, 'Ahli Muda') !== false) {
-            return $jenisJabatanMap['Jabatan Fungsional Muda'] ?? null;
+            return $jenisJabatanMap['Jabatan Fungsional Ahli Muda'] ?? null;
         }
         if (stripos($jabatanName, 'Ahli Pertama') !== false) {
-            return $jenisJabatanMap['Jabatan Fungsional Pertama'] ?? null;
+            return $jenisJabatanMap['Jabatan Fungsional Ahli Pertama'] ?? null;
         }
         if (stripos($jabatanName, 'Penyelia') !== false) {
             return $jenisJabatanMap['Jabatan Fungsional Penyelia'] ?? null;

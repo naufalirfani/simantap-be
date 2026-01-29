@@ -243,8 +243,8 @@ class PenilaianController extends Controller
 
                     foreach ($allSub as $subId => $sub) {
                         $bobot = (float) ($sub->bobot ?? 0);
-                        $indikatorPen = strtolower($sub->indikator->penilaian ?? '');
-                        $usesStandar = preg_match('/manajerial|sosial|kompetensi/i', $indikatorPen);
+                        $usesStandarMsk = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
+                        $usesStandarPotensi = $sub->indikator->indikator === 'Penilaian Potensi Talenta';
 
                         // default nilai
                         $nilai = 0.0;
@@ -280,13 +280,15 @@ class PenilaianController extends Controller
 
                         // compute hasil
                         $hasil = 0.0;
-                        if ($usesStandar) {
+                        if ($usesStandarMsk) {
                             $standar = $jid && isset($standarMap[$jid][$subId]) ? (float) $standarMap[$jid][$subId] : 0.0;
                             if ($standar > 0) {
                                 $hasil = ($nilai / $standar) * 100.0 * ($bobot / 100.0);
                             } else {
                                 $hasil = 0.0;
                             }
+                        } elseif ($usesStandarPotensi) {
+                            $hasil = ($nilai / 5) * 100.0 * ($bobot / 100.0);
                         } else {
                             $hasil = $nilai * ($bobot / 100.0);
                         }
@@ -566,13 +568,13 @@ class PenilaianController extends Controller
                         $subId = $sub->id;
                         $nilai = (float) $value;
                         $bobot = (float) ($sub->bobot ?? 0);
-                        $indikatorPen = strtolower($sub->indikator->penilaian ?? '');
 
                         // Determine if this indikator uses standar-based calculation
-                        $usesStandar = preg_match('/manajerial|sosial|kompetensi/i', $indikatorPen);
+                        $usesStandarMsk = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
+                        $usesStandarPotensi = $sub->indikator->indikator === 'Penilaian Potensi Talenta';
 
                         $hasil = 0.0;
-                        if ($usesStandar) {
+                        if ($usesStandarMsk) {
                             $jid = $pegawai->jenis_jabatan_id ?? null;
                             $standar = $jid && isset($standarMap[$jid][$subId]) ? (float) $standarMap[$jid][$subId] : 0.0;
                             if ($standar > 0) {
@@ -580,6 +582,8 @@ class PenilaianController extends Controller
                             } else {
                                 $hasil = 0.0;
                             }
+                        } elseif ($usesStandarPotensi) {
+                            $hasil = ($nilai / 5) * 100.0 * ($bobot / 100.0);
                         } else {
                             $hasil = $nilai * ($bobot / 100.0);
                         }
@@ -735,11 +739,11 @@ class PenilaianController extends Controller
                     $subId = $sub->id;
                     $nilai = (float) $value;
                     $bobot = (float) ($sub->bobot ?? 0);
-                    $indikatorPen = strtolower($sub->indikator->penilaian ?? '');
-                    $usesStandar = preg_match('/manajerial|sosial|kompetensi/i', $indikatorPen);
+                    $usesStandarMsk = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
+                    $usesStandarPotensi = $sub->indikator->indikator === 'Penilaian Potensi Talenta';
 
                     $hasil = 0.0;
-                    if ($usesStandar) {
+                    if ($usesStandarMsk) {
                         $jid = $pegawai->jenis_jabatan_id ?? null;
                         $standar = $jid && isset($standarMap[$jid][$subId]) ? (float) $standarMap[$jid][$subId] : 0.0;
                         if ($standar > 0) {
@@ -747,6 +751,8 @@ class PenilaianController extends Controller
                         } else {
                             $hasil = 0.0;
                         }
+                    } elseif ($usesStandarPotensi) {
+                        $hasil = ($nilai / 5) * 100.0 * ($bobot / 100.0);
                     } else {
                         $hasil = $nilai * ($bobot / 100.0);
                     }

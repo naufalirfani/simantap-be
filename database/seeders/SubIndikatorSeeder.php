@@ -16,49 +16,49 @@ class SubIndikatorSeeder extends Seeder
     public function run(): void
     {
         // Get Indikator IDs
-        $penilaianSpesifik = Indikator::where('indikator', 'Penilaian Spesifik')->first();
-        $penilaianGenerik = Indikator::where('indikator', 'Penilaian Generik')->first();
+        $penilaianSpesifik = Indikator::where('indikator', 'Penilaian Utama')->first();
+        $penilaianGenerik = Indikator::where('indikator', 'Penilaian Penguat')->first();
         $penilaianPotensiTalenta = Indikator::where('indikator', 'Penilaian Potensi Talenta')->first();
         $rekamJejakJabatan = Indikator::where('indikator', 'Rekam Jejak Jabatan')->first();
-        $pertimbanganLainnya = Indikator::where('indikator', 'Pertimbangan lainnya')->first();
+        $kualifikasi = Indikator::where('indikator', 'Kualifikasi')->first();
         $penilaianKompetensiTalenta = Indikator::where('indikator', 'Penilaian Kompetensi Manajerial dan Sosial Kultural')->first();
 
         $subIndikators = [
-            // Penilaian Spesifik
+            // Penilaian Utama
             [
-                'subindikator' => 'Perilaku Kerja',
-                'bobot' => 10.00,
+                'subindikator' => 'Penilaian Kerja (SKP)',
+                'bobot' => 40.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianSpesifik->id,
             ],
-            [
-                'subindikator' => 'Capaian Kinerja',
-                'bobot' => 30.00,
-                'isactive' => true,
-                'indikator_id' => $penilaianSpesifik->id,
-            ],
-            // Penilaian Generik
-            [
-                'subindikator' => 'Partisipasi dalam Organisasi',
-                'bobot' => 15.00,
-                'isactive' => true,
-                'indikator_id' => $penilaianGenerik->id,
-            ],
+            // Penilaian Penguat
             [
                 'subindikator' => 'Tugas Tambahan',
-                'bobot' => 10.00,
+                'bobot' => 5.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianGenerik->id,
             ],
             [
                 'subindikator' => 'Inovasi',
+                'bobot' => 10.00,
+                'isactive' => true,
+                'indikator_id' => $penilaianGenerik->id,
+            ],
+            [
+                'subindikator' => 'Kehadiran',
                 'bobot' => 15.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianGenerik->id,
             ],
             [
-                'subindikator' => 'Disiplin',
-                'bobot' => 20.00,
+                'subindikator' => 'Penugasan dalam Tim Kerja',
+                'bobot' => 15.00,
+                'isactive' => true,
+                'indikator_id' => $penilaianGenerik->id,
+            ],
+            [
+                'subindikator' => 'Penghargaan atas Capaian Kinerja',
+                'bobot' => 15.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianGenerik->id,
             ],
@@ -113,76 +113,58 @@ class SubIndikatorSeeder extends Seeder
             ],
             // Rekam Jejak Jabatan
             [
-                'subindikator' => 'Penghargaan',
-                'bobot' => 4.00,
-                'isactive' => true,
-                'indikator_id' => $rekamJejakJabatan->id,
-            ],
-            [
-                'subindikator' => 'Diklat Kepemimpinan',
-                'bobot' => 4.00,
-                'isactive' => true,
-                'indikator_id' => $rekamJejakJabatan->id,
-            ],
-            [
-                'subindikator' => 'Masa kerja',
-                'bobot' => 4.00,
-                'isactive' => true,
-                'indikator_id' => $rekamJejakJabatan->id,
-            ],
-            [
-                'subindikator' => 'Kualifikasi',
-                'bobot' => 4.00,
+                'subindikator' => 'Diklat Kepemimpinan/Keahlian/Penjenjangan',
+                'bobot' => 5.00,
                 'isactive' => true,
                 'indikator_id' => $rekamJejakJabatan->id,
             ],
             [
                 'subindikator' => 'Integritas/Moralitas',
-                'bobot' => 4.00,
+                'bobot' => 15.00,
                 'isactive' => true,
                 'indikator_id' => $rekamJejakJabatan->id,
             ],
             [
                 'subindikator' => 'Pengembangan Kompetensi',
+                'bobot' => 5.00,
+                'isactive' => true,
+                'indikator_id' => $rekamJejakJabatan->id,
+            ],
+            [
+                'subindikator' => 'Lama Jabatan',
                 'bobot' => 4.00,
                 'isactive' => true,
                 'indikator_id' => $rekamJejakJabatan->id,
             ],
             [
-                'subindikator' => 'Pengalaman Jabatan',
+                'subindikator' => 'Keragaman Riwayat Jabatan',
                 'bobot' => 3.00,
                 'isactive' => true,
                 'indikator_id' => $rekamJejakJabatan->id,
             ],
             [
-                'subindikator' => 'Pangkat/Golongan Ruang',
+                'subindikator' => 'Penugasan Dalam Jabatan Nondefinitif',
                 'bobot' => 3.00,
                 'isactive' => true,
                 'indikator_id' => $rekamJejakJabatan->id,
             ],
-            // Pertimbangan lainnya
+            // Kualifikasi
             [
-                'subindikator' => 'Penugasan dalam Tim Kerja',
-                'bobot' => 5.00,
+                'subindikator' => 'Tingkat Pendidikan Formal',
+                'bobot' => 10.00,
                 'isactive' => true,
-                'indikator_id' => $pertimbanganLainnya->id,
-            ],
-            [
-                'subindikator' => 'Pertimbangan Atasan',
-                'bobot' => 5.00,
-                'isactive' => true,
-                'indikator_id' => $pertimbanganLainnya->id,
+                'indikator_id' => $kualifikasi->id,
             ],
             [
                 'subindikator' => 'Kesesuaian Pendidikan dengan Jabatan Target',
                 'bobot' => 10.00,
                 'isactive' => true,
-                'indikator_id' => $pertimbanganLainnya->id,
+                'indikator_id' => $kualifikasi->id,
             ],
             // Penilaian Kompetensi Talenta
             [
                 'subindikator' => 'Perekat Bangsa',
-                'bobot' => 3.00,
+                'bobot' => 2.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianKompetensiTalenta->id,
             ],
@@ -200,25 +182,25 @@ class SubIndikatorSeeder extends Seeder
             ],
             [
                 'subindikator' => 'Orientasi Pada Hasil',
-                'bobot' => 3.00,
+                'bobot' => 2.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianKompetensiTalenta->id,
             ],
             [
                 'subindikator' => 'Integritas',
-                'bobot' => 3.00,
+                'bobot' => 2.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianKompetensiTalenta->id,
             ],
             [
                 'subindikator' => 'Pengambilan Keputusan',
-                'bobot' => 3.00,
+                'bobot' => 2.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianKompetensiTalenta->id,
             ],
             [
                 'subindikator' => 'Pengembangan Diri dan Orang Lain',
-                'bobot' => 3.00,
+                'bobot' => 2.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianKompetensiTalenta->id,
             ],
