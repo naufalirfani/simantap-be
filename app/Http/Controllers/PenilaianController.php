@@ -105,10 +105,10 @@ class PenilaianController extends Controller
     }
 
     /**
-     * Generate nilai for Kualifikasi (education) based on pegawai json and instrumen rules.
+     * Generate nilai for Tingkat Pendidikan Formal (education) based on pegawai json and instrumen rules.
      * Accepts values like 's2', 's-2', 's.2' (case-insensitive) in pegawai.json.tkPendidikanTerakhir
      */
-    private function generateNilaiKualifikasi($pegawaiJson, $instrumens)
+    private function generateNilaiTingkatPendidikanFormal($pegawaiJson, $instrumens)
     {
         // extract education string
         $edu = data_get($pegawaiJson, 'tkPendidikanTerakhir');
@@ -220,10 +220,11 @@ class PenilaianController extends Controller
                     $masaIds[] = $id;
                 }
             }
+
             // identify 'kualifikasi' subindikator ids (case-insensitive match)
             $kualifikasiIds = [];
             foreach ($allSub as $id => $s) {
-                if (stripos($s->subindikator ?? '', 'kualifikasi') !== false || stripos($s->subindikator ?? '', 'kualifikasi pendidikan') !== false) {
+                if (stripos($s->subindikator ?? '', 'Tingkat Pendidikan Formal') !== false || stripos($s->subindikator ?? '', 'kualifikasi pendidikan') !== false) {
                     $kualifikasiIds[] = $id;
                 }
             }
@@ -249,13 +250,13 @@ class PenilaianController extends Controller
                         // default nilai
                         $nilai = 0.0;
 
-                        // Special handling for Masa kerja and Kualifikasi
+                        // Special handling for Masa kerja and Tingkat Pendidikan Formal
                         if (in_array($subId, $masaIds, true)) {
                             $instrs = $instrBySub[$subId] ?? collect();
-                            $nilai = $this->generateNilaiMasaKerja($pegawai->json, $instrs);
+                            // $nilai = $this->generateNilaiMasaKerja($pegawai->json, $instrs);
                         } elseif (in_array($subId, $kualifikasiIds, true)) {
                             $instrs = $instrBySub[$subId] ?? collect();
-                            $nilai = $this->generateNilaiKualifikasi($pegawai->json, $instrs);
+                            $nilai = $this->generateNilaiTingkatPendidikanFormal($pegawai->json, $instrs);
                         } else {
                             // use existing value if available, otherwise default 0
                             if (array_key_exists($subId, $oldPen)) {
