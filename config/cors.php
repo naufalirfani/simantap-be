@@ -19,7 +19,14 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    'allowed_origins' => [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'https://simantap.duckdns.org',
+        'https://simantap.dpd.go.id',
+        'https://simantap2.dpd.go.id',
+        'https://simantap-be.dpd.go.id',
+    ],
 
     'allowed_origins_patterns' => [],
 
@@ -29,6 +36,6 @@ return [
 
     'max_age' => 0,
 
-    'supports_credentials' => false,
+    'supports_credentials' => true,
 
 ];

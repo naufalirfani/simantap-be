@@ -550,9 +550,9 @@ class PenilaianController extends Controller
                     $rowError = null;
                     foreach ($subNames as $sn) {
                         $value = array_key_exists($sn, $r) ? $r[$sn] : '';
+                        // Skip empty values instead of throwing error - allow partial updates
                         if (is_null($value) || $value === '') {
-                            $rowError = "Empty value for '{$sn}'";
-                            break;
+                            continue;
                         }
                         if (!is_numeric($value)) {
                             $rowError = "Non-numeric value for '{$sn}'";
@@ -600,6 +600,12 @@ class PenilaianController extends Controller
                         continue;
                     }
 
+                    // Skip this row if no valid penilaian data was found
+                    if (count($penilaian) === 0) {
+                        $failed[] = ['row' => $rowIndex, 'nip' => $nip, 'reason' => 'No valid subindikator values provided'];
+                        continue;
+                    }
+
                     // Upsert by pegawai_id when available
                     $pegawaiId = $pegawai->id ?? null;
                     if ($pegawaiId) {
@@ -609,7 +615,9 @@ class PenilaianController extends Controller
                     }
 
                     if ($existing) {
-                        $existing->penilaian = $penilaian;
+                        // Merge with existing penilaian data instead of replacing
+                        $existingPenilaian = is_array($existing->penilaian) ? $existing->penilaian : [];
+                        $existing->penilaian = array_merge($existingPenilaian, $penilaian);
                         $existing->pegawai_id = $pegawai->id;
                         $existing->save();
                     } else {
@@ -720,9 +728,9 @@ class PenilaianController extends Controller
                     $value = $sheet->getCell([$colIndex, $row])->getCalculatedValue();
                     $value = is_null($value) ? '' : trim((string) $value);
 
+                    // Skip empty values instead of throwing error - allow partial updates
                     if ($value === '') {
-                        $rowError = "Empty value for '{$subNames[$c]}'";
-                        break;
+                        continue;
                     }
 
                     if (!is_numeric($value)) {
@@ -769,6 +777,12 @@ class PenilaianController extends Controller
                     continue;
                 }
 
+                // Skip this row if no valid penilaian data was found
+                if (count($penilaian) === 0) {
+                    $failed[] = ['row' => $row, 'nip' => $nip, 'reason' => 'No valid subindikator values provided'];
+                    continue;
+                }
+
                 // Upsert by pegawai_user_id when available
                 $userKey = $pegawai->pegawai_id ?? null;
                 if ($userKey) {
@@ -778,7 +792,9 @@ class PenilaianController extends Controller
                 }
 
                 if ($existing) {
-                    $existing->penilaian = $penilaian;
+                    // Merge with existing penilaian data instead of replacing
+                    $existingPenilaian = is_array($existing->penilaian) ? $existing->penilaian : [];
+                    $existing->penilaian = array_merge($existingPenilaian, $penilaian);
                     $existing->pegawai_id = $pegawai->id;
                     $existing->save();
                 } else {

@@ -42,20 +42,24 @@ class SubIndikatorController extends Controller
         }
 
         // Check sibling sum does not exceed parent indikator bobot
+        // Skip validation if parent penilaian is 'Tambahan'
         $indikatorId = $request->input('indikator_id');
         $newBobot = (float) $request->input('bobot');
         $parent = Indikator::find($indikatorId);
-        $currentSiblingTotal = (float) SubIndikator::where('indikator_id', $indikatorId)->sum('bobot');
-        if ($currentSiblingTotal + $newBobot > (float) $parent->bobot) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Total bobot subindikator tidak boleh melebihi bobot indikator induk',
-                'meta' => [
-                    'attempted_total' => $currentSiblingTotal + $newBobot,
-                    'bobot_indikator' => (float) $parent->bobot,
-                    'current_total' => $currentSiblingTotal,
-                ]
-            ], 422);
+        
+        if ($parent->penilaian !== 'Tambahan') {
+            $currentSiblingTotal = (float) SubIndikator::where('indikator_id', $indikatorId)->sum('bobot');
+            if ($currentSiblingTotal + $newBobot > (float) $parent->bobot) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Total bobot subindikator tidak boleh melebihi bobot indikator induk',
+                    'meta' => [
+                        'attempted_total' => $currentSiblingTotal + $newBobot,
+                        'bobot_indikator' => (float) $parent->bobot,
+                        'current_total' => $currentSiblingTotal,
+                    ]
+                ], 422);
+            }
         }
 
         $subIndikator = DB::transaction(function () use ($request) {
@@ -118,24 +122,28 @@ class SubIndikatorController extends Controller
         }
 
         // If bobot or indikator_id is changing, validate sibling total vs parent
+        // Skip validation if parent penilaian is 'Tambahan'
         if ($request->has('bobot') || $request->has('indikator_id')) {
             $targetIndikatorId = $request->input('indikator_id', $subIndikator->indikator_id);
             $newBobot = $request->has('bobot') ? (float) $request->input('bobot') : (float) $subIndikator->bobot;
             $parent = Indikator::find($targetIndikatorId);
-            $currentSiblingTotal = (float) SubIndikator::where('indikator_id', $targetIndikatorId)
-                ->where('id', '!=', $id)
-                ->sum('bobot');
+            
+            if ($parent->penilaian !== 'Tambahan') {
+                $currentSiblingTotal = (float) SubIndikator::where('indikator_id', $targetIndikatorId)
+                    ->where('id', '!=', $id)
+                    ->sum('bobot');
 
-            if ($currentSiblingTotal + $newBobot > (float) $parent->bobot) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Total bobot subindikator tidak boleh melebihi bobot indikator induk',
-                    'meta' => [
-                        'attempted_total' => $currentSiblingTotal + $newBobot,
-                        'bobot_indikator' => (float) $parent->bobot,
-                        'current_total' => $currentSiblingTotal,
-                    ]
-                ], 422);
+                if ($currentSiblingTotal + $newBobot > (float) $parent->bobot) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Total bobot subindikator tidak boleh melebihi bobot indikator induk',
+                        'meta' => [
+                            'attempted_total' => $currentSiblingTotal + $newBobot,
+                            'bobot_indikator' => (float) $parent->bobot,
+                            'current_total' => $currentSiblingTotal,
+                        ]
+                    ], 422);
+                }
             }
         }
 
@@ -209,10 +217,11 @@ class SubIndikatorController extends Controller
             }
 
             // Recalculate and update parent indikator bobot for affected indikator ids
+            // Skip auto-update if parent penilaian is 'Tambahan'
             foreach (array_values($affectedIndikatorIds) as $indikatorId) {
-                $total = (float) SubIndikator::where('indikator_id', $indikatorId)->sum('bobot');
                 $parent = Indikator::find($indikatorId);
-                if ($parent) {
+                if ($parent && $parent->penilaian !== 'Tambahan') {
+                    $total = (float) SubIndikator::where('indikator_id', $indikatorId)->sum('bobot');
                     $parent->bobot = $total;
                     $parent->save();
                 }

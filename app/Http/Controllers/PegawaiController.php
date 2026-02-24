@@ -308,7 +308,17 @@ class PegawaiController extends Controller
                 'Jabatan Pelaksana',
             ];
 
-            $typesToUse = $allowedTypes;
+            // Equivalensi antara jabatan struktural dan fungsional
+            $equivalensi = [
+                'Jabatan Pimpinan Tinggi Utama' => [],
+                'Jabatan Pimpinan Tinggi Madya' => [],
+                'Jabatan Pimpinan Tinggi Pratama' => ['Jabatan Fungsional Ahli Utama'],
+                'Jabatan Administrator' => ['Jabatan Fungsional Ahli Madya'],
+                'Jabatan Pengawas' => ['Jabatan Fungsional Ahli Muda'],
+                'Jabatan Pelaksana' => ['Jabatan Fungsional Ahli Pertama'],
+            ];
+
+            $typesToUse = [];
             $mappedType = null;
             $peta = \App\Models\PetaJabatan::find($peta_jabatan_id);
             if ($peta) {
@@ -338,14 +348,26 @@ class PegawaiController extends Controller
             }
 
             if ($retensi) {
+                // Retensi: ambil jabatan yang setara (baik struktural maupun fungsional)
                 if ($mappedType !== null) {
                     $typesToUse = [$mappedType];
+                    // Tambahkan jabatan fungsional yang setara
+                    if (array_key_exists($mappedType, $equivalensi)) {
+                        $typesToUse = array_merge($typesToUse, $equivalensi[$mappedType]);
+                    }
                 }
             } else {
+                // Non-retensi: ambil 1 tingkat di bawahnya (baik struktural maupun fungsional)
                 if ($mappedType !== null) {
                     $idx = array_search($mappedType, $allowedTypes, true);
-                    if ($idx !== false) {
-                        $typesToUse = array_slice($allowedTypes, $idx + 1);
+                    if ($idx !== false && $idx < count($allowedTypes) - 1) {
+                        // Ambil 1 tingkat di bawah
+                        $oneLevelBelow = $allowedTypes[$idx + 1];
+                        $typesToUse = [$oneLevelBelow];
+                        // Tambahkan jabatan fungsional yang setara dengan tingkat di bawah
+                        if (array_key_exists($oneLevelBelow, $equivalensi)) {
+                            $typesToUse = array_merge($typesToUse, $equivalensi[$oneLevelBelow]);
+                        }
                     }
                 }
             }

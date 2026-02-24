@@ -40,18 +40,22 @@ class IndikatorController extends Controller
         }
 
         // Check total bobot of all indikator (including this new one) does not exceed 100
-        $newBobot = (float) $request->input('bobot');
-        $currentTotal = (float) Indikator::sum('bobot');
-        $attemptedTotal = $currentTotal + $newBobot;
-        if ($attemptedTotal > 100.0) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Total bobot indikator tidak boleh melebihi 100',
-                'meta' => [
-                    'attempted_total' => $attemptedTotal,
-                    'current_total' => $currentTotal,
-                ]
-            ], 422);
+        // Exclude indikators with penilaian 'Tambahan' from calculation
+        $penilaian = $request->input('penilaian');
+        if ($penilaian !== 'Tambahan') {
+            $newBobot = (float) $request->input('bobot');
+            $currentTotal = (float) Indikator::where('penilaian', '!=', 'Tambahan')->sum('bobot');
+            $attemptedTotal = $currentTotal + $newBobot;
+            if ($attemptedTotal > 100.0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Total bobot indikator tidak boleh melebihi 100',
+                    'meta' => [
+                        'attempted_total' => $attemptedTotal,
+                        'current_total' => $currentTotal,
+                    ]
+                ], 422);
+            }
         }
 
         $indikator = DB::transaction(function () use ($request) {
@@ -113,10 +117,14 @@ class IndikatorController extends Controller
         }
 
         $willChangeBobot = $request->has('bobot');
+        $targetPenilaian = $request->input('penilaian', $indikator->penilaian);
 
-        if ($willChangeBobot) {
+        // Only validate bobot total if penilaian is not 'Tambahan'
+        if ($willChangeBobot && $targetPenilaian !== 'Tambahan') {
             $newBobot = (float) $request->input('bobot');
-            $sumOthers = (float) Indikator::where('id', '!=', $id)->sum('bobot');
+            $sumOthers = (float) Indikator::where('id', '!=', $id)
+                ->where('penilaian', '!=', 'Tambahan')
+                ->sum('bobot');
             $total = $sumOthers + $newBobot;
             if ($total > 100.0) {
                 return response()->json([
