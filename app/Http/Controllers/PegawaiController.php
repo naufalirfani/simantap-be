@@ -141,6 +141,7 @@ class PegawaiController extends Controller
                     'unit_kerja' => $item->unit_organisasi_name,
                     'jabatan' => $item->jabatan_name,
                     'lokasi_kerja' => $item->lokasi_kerja,
+                    'jenis_jabatan_id' => $item->jenis_jabatan_id,
                     'jenis_jabatan' => str_replace('Jabatan Fungsional', 'JF', str_replace('Jabatan Pimpinan Tinggi', 'JPT', $item->jenis_jabatan)),
                     'golongan' => $item->golongan,
                     'penilaian' => $penObj,

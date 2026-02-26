@@ -3,6 +3,7 @@
 use App\Http\Controllers\IndikatorController;
 use App\Http\Controllers\InstrumenController;
 use App\Http\Controllers\PegawaiController;
+use App\Http\Controllers\PengembanganStatistikController;
 use App\Http\Controllers\PetaJabatanController;
 use App\Http\Controllers\StatistikController;
 use App\Http\Controllers\SubIndikatorController;
@@ -56,6 +57,9 @@ Route::apiResource('syarat-suksesi', SyaratSuksesiController::class);
 // Statistik Routes
 Route::get('statistik', [StatistikController::class, 'index']);
 Route::post('statistik/sync', [StatistikController::class, 'sync']);
+
+// Pengembangan Statistik Routes
+Route::get('pengembangan/statistik', [PengembanganStatistikController::class, 'index']);
 // Daftar Kotak (intervals + kotak) Routes
 Route::get('daftar-kotak', [DaftarKotakController::class, 'index']);
 Route::post('daftar-kotak', [DaftarKotakController::class, 'store']);
