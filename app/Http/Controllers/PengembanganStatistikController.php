@@ -165,19 +165,22 @@ class PengembanganStatistikController extends Controller
         ) {
             foreach ($chunk as $pegawai) {
                 $nip = $pegawai->nip;
-                $empInfoMap[$nip] = [
-                    'name'      => $pegawai->name,
-                    'nip'       => $nip,
-                    'jabatan'   => $pegawai->jabatan_name,
-                    'unitKerja' => $pegawai->unit_organisasi_name,
-                    'avatar'    => $pegawai->avatar,
-                ];
 
                 /** @var \App\Models\Penilaian|null $penilaianRec */
                 $penilaianRec  = $pegawai->penilaian;
                 $penilaianData = ($penilaianRec && is_array($penilaianRec->penilaian))
                     ? $penilaianRec->penilaian
                     : null;
+
+                $empInfoMap[$nip] = [
+                    'name'      => $pegawai->name,
+                    'nip'       => $nip,
+                    'jenis_jabatan_id' => $pegawai->jenis_jabatan_id,
+                    'jabatan'   => $pegawai->jabatan_name,
+                    'unitKerja' => $pegawai->unit_organisasi_name,
+                    'avatar'    => $pegawai->avatar,
+                    'penilaian' => $penilaianData,
+                ];
 
                 if ($penilaianData === null) {
                     $belumNips[] = $nip;
