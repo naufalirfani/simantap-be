@@ -4,18 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Models\Pegawai;
 use App\Models\Penilaian;
-use App\Models\SubIndikator;
 use App\Models\StandarKompetensiMsk;
+use App\Models\SubIndikator;
+use App\Services\PenilaianSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
-use Carbon\Carbon;
-use App\Models\Instrumen;
 
 class PenilaianController extends Controller
 {
+    public function __construct(private readonly PenilaianSyncService $syncService) {}
+
     public function index(Request $request)
     {
         try {
@@ -34,309 +35,27 @@ class PenilaianController extends Controller
     }
 
     /**
-     * Generate nilai for Masa kerja based on years and instrumen rules.
-     * Parses instrumen text to extract year ranges and map to scores dynamically.
-     */
-    private function generateNilaiMasaKerja($pegawaiJson, $instrumens)
-    {
-        // extract tmtCpns from pegawai json
-        $tmt = data_get($pegawaiJson, 'tmtCpns');
-        if (empty($tmt)) {
-            $tmt = data_get($pegawaiJson, 'tmt_cpns');
-        }
-
-        $years = null;
-        if (!empty($tmt)) {
-            try {
-                $dt = Carbon::parse($tmt);
-                $years = $dt->diffInYears(Carbon::now());
-            } catch (\Exception $e) {
-                $years = null;
-            }
-        }
-
-        if ($years === null) {
-            return 0.0;
-        }
-
-        // Parse each instrumen to extract year range and skor
-        $rules = [];
-        foreach ($instrumens as $ins) {
-            $text = strtolower($ins->instrumen ?? '');
-            $skor = (float) $ins->skor;
-
-            // Pattern: "X tahun keatas" or "X tahun ke atas"
-            if (preg_match('/(\d+)\s*tahun\s*ke\s*atas/', $text, $m)) {
-                $min = (int) $m[1];
-                $rules[] = ['type' => 'gte', 'min' => $min, 'skor' => $skor];
-                continue;
-            }
-
-            // Pattern: ">X s.d Y tahun" (exclusive lower, inclusive upper)
-            if (preg_match('/>(\d+)\s*s\.?d\.?\s*(\d+)\s*tahun/', $text, $m)) {
-                $min = (int) $m[1];
-                $max = (int) $m[2];
-                $rules[] = ['type' => 'gt_lte', 'min' => $min, 'max' => $max, 'skor' => $skor];
-                continue;
-            }
-
-            // Pattern: "X s.d Y tahun" (inclusive both, typically for lower bound like 0-5)
-            if (preg_match('/(\d+)\s*s\.?d\.?\s*(\d+)\s*tahun/', $text, $m)) {
-                $min = (int) $m[1];
-                $max = (int) $m[2];
-                $rules[] = ['type' => 'gte_lte', 'min' => $min, 'max' => $max, 'skor' => $skor];
-                continue;
-            }
-        }
-
-        // Match years against rules
-        foreach ($rules as $rule) {
-            if ($rule['type'] === 'gte' && $years >= $rule['min']) {
-                return $rule['skor'];
-            } elseif ($rule['type'] === 'gt_lte' && $years > $rule['min'] && $years <= $rule['max']) {
-                return $rule['skor'];
-            } elseif ($rule['type'] === 'gte_lte' && $years >= $rule['min'] && $years <= $rule['max']) {
-                return $rule['skor'];
-            }
-        }
-
-        // Fallback: return 0 if no rule matches
-        return 0.0;
-    }
-
-    /**
-     * Generate nilai for Tingkat Pendidikan Formal (education) based on pegawai json and instrumen rules.
-     * Accepts values like 's2', 's-2', 's.2' (case-insensitive) in pegawai.json.tkPendidikanTerakhir
-     */
-    private function generateNilaiTingkatPendidikanFormal($pegawaiJson, $instrumens)
-    {
-        // extract education string
-        $edu = data_get($pegawaiJson, 'tkPendidikanTerakhir');
-        if (empty($edu)) {
-            $edu = data_get($pegawaiJson, 'tk_pendidikan_terakhir');
-        }
-
-        $normEdu = '';
-        if (!empty($edu)) {
-            $normEdu = strtolower(trim((string) $edu));
-            // normalize variants: s.2, s-2 -> s2
-            $normEdu = preg_replace('/[\.\-\s]+/', '', $normEdu);
-        }
-
-        // map normalized education to canonical level tokens
-        $level = null;
-        if ($normEdu !== '') {
-            if (preg_match('/s3|strata3|strataiii/', $normEdu)) {
-                $level = 'S3';
-            } elseif (preg_match('/s2|strata2|strataii/', $normEdu)) {
-                $level = 'S2';
-            } elseif (preg_match('/s1|d4|d.iv|d\.4|strata1|stratai/', $normEdu)) {
-                $level = 'S1/D4';
-            } elseif (preg_match('/d3|d\.3|diii|d3/i', $normEdu)) {
-                $level = 'D3';
-            } elseif (preg_match('/slta|sma|smk|ma|sma\/ma|sekolahlanjutantingkatatas/', $normEdu)) {
-                $level = 'SLTA';
-            } else {
-                // fallback: try to detect digits
-                if (strpos($normEdu, '3') !== false) $level = 'S3';
-                if (!$level && strpos($normEdu, '2') !== false) $level = 'S2';
-                if (!$level && (strpos($normEdu, '1') !== false || strpos($normEdu, 'd4') !== false)) $level = 'S1/D4';
-            }
-        }
-
-        // build mapping from instrumen entries to scores by detecting keywords
-        $mapping = [];
-        foreach ($instrumens as $ins) {
-            $text = strtolower($ins->instrumen ?? '');
-            $skor = (float) $ins->skor;
-
-            $t = preg_replace('/[\.\-\s]+/', '', $text);
-            if (stripos($t, 's3') !== false || stripos($text, 'strata 3') !== false) {
-                $mapping['S3'] = $skor;
-                continue;
-            }
-            if (stripos($t, 's2') !== false || stripos($text, 'strata 2') !== false) {
-                $mapping['S2'] = $skor;
-                continue;
-            }
-            if (stripos($t, 's1') !== false || stripos($t, 'd4') !== false || stripos($text, 'strata 1') !== false) {
-                $mapping['S1/D4'] = $skor;
-                continue;
-            }
-            if (stripos($t, 'd3') !== false || stripos($text, 'diploma iii') !== false) {
-                $mapping['D3'] = $skor;
-                continue;
-            }
-            if (stripos($t, 'slta') !== false || stripos($text, 'sekolah lanjutan') !== false || stripos($text, 'sma') !== false) {
-                $mapping['SLTA'] = $skor;
-                continue;
-            }
-        }
-
-        // if level detected and mapping has it, return mapped skor
-        if ($level && array_key_exists($level, $mapping)) {
-            return $mapping[$level];
-        }
-
-        // fallback: try direct match of instrumen skor by searching normalized edu in instrumen text
-        foreach ($instrumens as $ins) {
-            $text = strtolower($ins->instrumen ?? '');
-            if ($normEdu !== '' && stripos(preg_replace('/[\.\-\s]+/', '', $text), $normEdu) !== false) {
-                return (float) $ins->skor;
-            }
-        }
-
-        return 0.0;
-    }
-
-    /**
-     * Recalculate and sync all penilaian records.
-     * Can be triggered via POST /api/penilaians/sync
+     * Recalculate and sync penilaian records.
+     * POST /api/penilaians/sync
+     *
+     * Optional params:
+     *   nip (string|string[]) – restrict sync to specific NIP(s)
      */
     public function sync(Request $request)
     {
         try {
-            set_time_limit(600);
-
-            // Load subindikator metadata
-            $allSub = SubIndikator::with('indikator')->get()->keyBy('id');
-
-            // Load instrumen per subindikator
-            $instrBySub = Instrumen::all()->groupBy('subindikator_id');
-
-            // Load standar kompetensi map [jenis_jabatan_id][subindikator_id] => standar
-            $allStandar = StandarKompetensiMsk::all();
-            $standarMap = [];
-            foreach ($allStandar as $st) {
-                $jid = $st->jenis_jabatan_id;
-                $sid = $st->subindikator_id;
-                $standarMap[$jid][$sid] = (float) $st->standar;
+            $filterNips = null;
+            if ($request->filled('nip')) {
+                $raw        = $request->input('nip');
+                $filterNips = is_array($raw) ? array_map('strval', $raw) : [strval($raw)];
             }
 
-            // identify 'masa kerja' subindikator ids (case-insensitive match)
-            $masaIds = [];
-            foreach ($allSub as $id => $s) {
-                if (stripos($s->subindikator ?? '', 'masa kerja') !== false) {
-                    $masaIds[] = $id;
-                }
-            }
+            $result = $this->syncService->syncPenilaian($filterNips);
 
-            // identify 'kualifikasi' subindikator ids (case-insensitive match)
-            $kualifikasiIds = [];
-            foreach ($allSub as $id => $s) {
-                if (stripos($s->subindikator ?? '', 'Tingkat Pendidikan Formal') !== false || stripos($s->subindikator ?? '', 'kualifikasi pendidikan') !== false) {
-                    $kualifikasiIds[] = $id;
-                }
-            }
-
-            $updated = 0;
-            $errors = [];
-
-            $pegawais = Pegawai::with('penilaian')->get();
-            foreach ($pegawais as $pegawai) {
-                try {
-                    if (!$pegawai) continue;
-                    $jid = $pegawai->jenis_jabatan_id ?? null;
-
-                    $rec = $pegawai->penilaian; // may be null
-                    $oldPen = ($rec && is_array($rec->penilaian)) ? $rec->penilaian : [];
-                    $newPen = [];
-
-                    foreach ($allSub as $subId => $sub) {
-                        $bobot = (float) ($sub->bobot ?? 0);
-                        $usesStandarMsk = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
-                        $usesStandarPotensi = $sub->indikator->indikator === 'Penilaian Potensi Talenta';
-
-                        // default nilai
-                        $nilai = 0.0;
-
-                        // Special handling for Masa kerja and Tingkat Pendidikan Formal
-                        if (in_array($subId, $masaIds, true)) {
-                            $instrs = $instrBySub[$subId] ?? collect();
-                            // $nilai = $this->generateNilaiMasaKerja($pegawai->json, $instrs);
-                        } elseif (in_array($subId, $kualifikasiIds, true)) {
-                            $instrs = $instrBySub[$subId] ?? collect();
-                            $nilai = $this->generateNilaiTingkatPendidikanFormal($pegawai->json, $instrs);
-                        } else {
-                            // use existing value if available, otherwise default 0
-                            if (array_key_exists($subId, $oldPen)) {
-                                $entry = $oldPen[$subId];
-                                if (is_array($entry)) {
-                                    if (array_key_exists('nilai', $entry)) {
-                                        $nilai = (float) $entry['nilai'];
-                                    } elseif (array_key_exists('hasil', $entry)) {
-                                        $nilai = (float) $entry['hasil'];
-                                    } else {
-                                        $nilai = 0.0;
-                                    }
-                                } elseif (is_numeric($entry)) {
-                                    $nilai = (float) $entry;
-                                } else {
-                                    $nilai = 0.0;
-                                }
-                            } else {
-                                $nilai = 0.0;
-                            }
-                        }
-
-                        // compute hasil
-                        $hasil = 0.0;
-                        if ($usesStandarMsk) {
-                            $standar = $jid && isset($standarMap[$jid][$subId]) ? (float) $standarMap[$jid][$subId] : 0.0;
-                            if ($standar > 0) {
-                                $hasil = ($nilai / $standar) * 100.0 * ($bobot / 100.0);
-                            } else {
-                                $hasil = 0.0;
-                            }
-                        } elseif ($usesStandarPotensi) {
-                            $hasil = ($nilai / 5) * 100.0 * ($bobot / 100.0);
-                        } else {
-                            $hasil = $nilai * ($bobot / 100.0);
-                        }
-
-                        $newPen[$subId] = ['nilai' => round($nilai, 2), 'hasil' => round($hasil, 2)];
-                    }
-
-                    // upsert penilaian per pegawai
-                    if ($rec) {
-                        if ($newPen !== $oldPen) {
-                            $rec->penilaian = $newPen;
-                            $rec->save();
-                            $updated++;
-                        }
-                    } else {
-                        $nr = new Penilaian();
-                        $nr->pegawai_id = $pegawai->id;
-                        $nr->penilaian = $newPen;
-                        $nr->save();
-                        $updated++;
-                    }
-                } catch (\Exception $e) {
-                    $errors[] = ['pegawai_nip' => $pegawai->nip ?? null, 'error' => $e->getMessage()];
-                }
-            }
-
-            return response()->json(['success' => true, 'updated' => $updated, 'errors' => $errors], 200);
+            return response()->json(['success' => true, ...$result], 200);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'Sync failed', 'error' => $e->getMessage()], 500);
         }
-    }
-
-    private function normalizeName(?string $s): string
-    {
-        if ($s === null) {
-            return '';
-        }
-        $s = trim(mb_strtolower($s));
-        // transliterate accents to ASCII when possible
-        $trans = @iconv('UTF-8', 'ASCII//TRANSLIT', $s);
-        if ($trans !== false) {
-            $s = $trans;
-        }
-        // replace non-alphanumeric with single space
-        $s = preg_replace('/[^a-z0-9]+/i', ' ', $s);
-        $s = preg_replace('/\s+/', ' ', $s);
-        return trim($s);
     }
 
     public function store(Request $request)
@@ -501,7 +220,7 @@ class PenilaianController extends Controller
             $allSub = SubIndikator::with('indikator')->get();
             $subMap = [];
             foreach ($allSub as $s) {
-                $key = $this->normalizeName($s->subindikator ?? null);
+                $key = $this->syncService->normalizeName($s->subindikator ?? null);
                 if ($key === '') {
                     continue;
                 }
@@ -519,7 +238,7 @@ class PenilaianController extends Controller
 
             $missingCols = [];
             foreach ($subNames as $sn) {
-                $key = $this->normalizeName($sn);
+                $key = $this->syncService->normalizeName($sn);
                 if (!isset($subMap[$key])) {
                     $missingCols[] = $sn;
                 }
@@ -559,7 +278,7 @@ class PenilaianController extends Controller
                             break;
                         }
 
-                        $subKey = $this->normalizeName($sn);
+                        $subKey = $this->syncService->normalizeName($sn);
                         $sub = $subMap[$subKey] ?? null;
                         if (!$sub) {
                             $rowError = "Unknown subindikator for '{$sn}'";
@@ -571,23 +290,13 @@ class PenilaianController extends Controller
                         $bobot = (float) ($sub->bobot ?? 0);
 
                         // Determine if this indikator uses standar-based calculation
-                        $usesStandarMsk = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
+                        $usesStandarMsk     = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
                         $usesStandarPotensi = $sub->indikator->indikator === 'Penilaian Potensi Talenta';
 
-                        $hasil = 0.0;
-                        if ($usesStandarMsk) {
-                            $jid = $pegawai->jenis_jabatan_id ?? null;
-                            $standar = $jid && isset($standarMap[$jid][$subId]) ? (float) $standarMap[$jid][$subId] : 0.0;
-                            if ($standar > 0) {
-                                $hasil = ($nilai / $standar) * 100.0 * ($bobot / 100.0);
-                            } else {
-                                $hasil = 0.0;
-                            }
-                        } elseif ($usesStandarPotensi) {
-                            $hasil = ($nilai / 5) * 100.0 * ($bobot / 100.0);
-                        } else {
-                            $hasil = $nilai * ($bobot / 100.0);
-                        }
+                        $jid     = $pegawai->jenis_jabatan_id ?? null;
+                        $standar = ($usesStandarMsk && $jid && isset($standarMap[$jid][$subId]))
+                            ? (float) $standarMap[$jid][$subId] : null;
+                        $hasil = $this->syncService->computeHasil($nilai, $bobot, $usesStandarMsk, $usesStandarPotensi, $standar);
 
                         $penilaian[$subId] = [
                             'nilai' => round($nilai, 2),
@@ -676,7 +385,7 @@ class PenilaianController extends Controller
             $allSub = SubIndikator::with('indikator')->get();
             $subMap = [];
             foreach ($allSub as $s) {
-                $key = $this->normalizeName($s->subindikator ?? null);
+                $key = $this->syncService->normalizeName($s->subindikator ?? null);
                 if ($key === '') {
                     continue;
                 }
@@ -694,7 +403,7 @@ class PenilaianController extends Controller
 
             $missingCols = [];
             foreach ($subNames as $sn) {
-                $key = $this->normalizeName($sn);
+                $key = $this->syncService->normalizeName($sn);
                 if (!isset($subMap[$key])) {
                     $missingCols[] = $sn;
                 }
@@ -738,7 +447,7 @@ class PenilaianController extends Controller
                         break;
                     }
 
-                    $subKey = $this->normalizeName($subNames[$c]);
+                    $subKey = $this->syncService->normalizeName($subNames[$c]);
                     $sub = $subMap[$subKey] ?? null;
                     if (!$sub) {
                         $rowError = "Unknown subindikator for '{$subNames[$c]}'";
@@ -748,23 +457,13 @@ class PenilaianController extends Controller
                     $subId = $sub->id;
                     $nilai = (float) $value;
                     $bobot = (float) ($sub->bobot ?? 0);
-                    $usesStandarMsk = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
+                    $usesStandarMsk     = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
                     $usesStandarPotensi = $sub->indikator->indikator === 'Penilaian Potensi Talenta';
 
-                    $hasil = 0.0;
-                    if ($usesStandarMsk) {
-                        $jid = $pegawai->jenis_jabatan_id ?? null;
-                        $standar = $jid && isset($standarMap[$jid][$subId]) ? (float) $standarMap[$jid][$subId] : 0.0;
-                        if ($standar > 0) {
-                            $hasil = ($nilai / $standar) * 100.0 * ($bobot / 100.0);
-                        } else {
-                            $hasil = 0.0;
-                        }
-                    } elseif ($usesStandarPotensi) {
-                        $hasil = ($nilai / 5) * 100.0 * ($bobot / 100.0);
-                    } else {
-                        $hasil = $nilai * ($bobot / 100.0);
-                    }
+                    $jid     = $pegawai->jenis_jabatan_id ?? null;
+                    $standar = ($usesStandarMsk && $jid && isset($standarMap[$jid][$subId]))
+                        ? (float) $standarMap[$jid][$subId] : null;
+                    $hasil = $this->syncService->computeHasil($nilai, $bobot, $usesStandarMsk, $usesStandarPotensi, $standar);
 
                     $penilaian[$subId] = [
                         'nilai' => round($nilai, 2),

@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             IndikatorSeeder::class,
             SubIndikatorSeeder::class,
+            AutoSyncSubIndikatorSeeder::class,
             InstrumenSeeder::class,
             DaftarKotakSeeder::class,
             JenisJabatanSeeder::class,

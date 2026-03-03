@@ -96,6 +96,13 @@ class InstrumenSeeder extends Seeder
             ['parent' => 'Penilaian Kerja (SKP)', 'instrumen' => 'c. Butuh Perbaikan', 'skor' => 60.00],
             ['parent' => 'Penilaian Kerja (SKP)', 'instrumen' => 'd. Kurang', 'skor' => 40.00],
             ['parent' => 'Penilaian Kerja (SKP)', 'instrumen' => 'e. Sangat Kurang ', 'skor' => 20.00],
+
+            // Umpan Balik 360 Derajat
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'a. Sangat Baik', 'skor' => 100.00],
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'b. Baik', 'skor' => 80.00],
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'c. Butuh Perbaikan', 'skor' => 60.00],
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'd. Kurang', 'skor' => 40.00],
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'e. Sangat Kurang ', 'skor' => 20.00],
         ];
 
         foreach ($items as $it) {

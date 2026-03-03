@@ -17,12 +17,12 @@ class IndikatorSeeder extends Seeder
         $indikators = [
             [
                 'indikator' => 'Penilaian Penguat',
-                'bobot' => 60.00,
+                'bobot' => 40.00,
                 'penilaian' => 'Kinerja',
             ],
             [
                 'indikator' => 'Penilaian Utama',
-                'bobot' => 40.00,
+                'bobot' => 60.00,
                 'penilaian' => 'Kinerja',
             ],
             [
@@ -44,6 +44,14 @@ class IndikatorSeeder extends Seeder
                 'indikator' => 'Penilaian Potensi Talenta',
                 'bobot' => 25.00,
                 'penilaian' => 'Potensial',
+            ],
+            [
+                'indikator' => 'Umum',
+                'penilaian' => 'Tambahan',
+            ],
+            [
+                'indikator' => 'Kompetensi Teknis',
+                'penilaian' => 'Tambahan',
             ],
         ];
 

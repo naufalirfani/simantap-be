@@ -3,7 +3,6 @@
 namespace Database\Seeders;
 
 use App\Models\Indikator;
-use App\Models\SubIndikator;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -22,33 +21,34 @@ class SubIndikatorSeeder extends Seeder
         $rekamJejakJabatan = Indikator::where('indikator', 'Rekam Jejak Jabatan')->first();
         $kualifikasi = Indikator::where('indikator', 'Kualifikasi')->first();
         $penilaianKompetensiTalenta = Indikator::where('indikator', 'Penilaian Kompetensi Manajerial dan Sosial Kultural')->first();
+        $kompetensiTeknis = Indikator::where('indikator', 'Kompetensi Teknis')->first();
+        $umum = Indikator::where('indikator', 'Umum')->first();
 
         $subIndikators = [
             // Penilaian Utama
             [
                 'subindikator' => 'Penilaian Kerja (SKP)',
-                'bobot' => 40.00,
+                'bobot' => 60.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianSpesifik->id,
             ],
             // Penilaian Penguat
             [
                 'subindikator' => 'Tugas Tambahan',
-                'bobot' => 5.00,
                 'isactive' => true,
-                'indikator_id' => $penilaianGenerik->id,
+                'indikator_id' => $umum->id,
             ],
             [
                 'subindikator' => 'Inovasi',
                 'bobot' => 10.00,
                 'isactive' => true,
-                'indikator_id' => $penilaianGenerik->id,
+                'indikator_id' => $umum->id,
             ],
             [
                 'subindikator' => 'Kehadiran',
                 'bobot' => 15.00,
                 'isactive' => true,
-                'indikator_id' => $penilaianGenerik->id,
+                'indikator_id' => $umum->id,
             ],
             [
                 'subindikator' => 'Penugasan dalam Tim Kerja',
@@ -59,6 +59,12 @@ class SubIndikatorSeeder extends Seeder
             [
                 'subindikator' => 'Penghargaan atas Capaian Kinerja',
                 'bobot' => 15.00,
+                'isactive' => true,
+                'indikator_id' => $penilaianGenerik->id,
+            ],
+            [
+                'subindikator' => 'Umpan Balik 360 Derajat',
+                'bobot' => 10.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianGenerik->id,
             ],
@@ -215,6 +221,12 @@ class SubIndikatorSeeder extends Seeder
                 'bobot' => 2.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianKompetensiTalenta->id,
+            ],
+            // Kompetensi Teknis
+            [
+                'subindikator' => 'Nilai Kompetensi Teknis',
+                'isactive' => true,
+                'indikator_id' => $kompetensiTeknis->id,
             ],
         ];
 

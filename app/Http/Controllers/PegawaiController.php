@@ -3,15 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Models\Pegawai;
+use App\Services\PenilaianSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 
 class PegawaiController extends Controller
 {
     /**
-     * Manually trigger pegawai sync from external API
+     * Manually trigger pegawai sync from external API.
+     *
+     * Optional request params:
+     *   nip (string|string[]) – when provided, only re-sync penilaian for the given NIP(s)
+     *                           (pegawai data sync still runs for all unless you pass nip to
+     *                           the artisan command separately)
      */
-    public function sync()
+    public function sync(Request $request)
     {
         // Set time limit to 10 minutes for sync operation
         set_time_limit(600);
@@ -30,6 +36,7 @@ class PegawaiController extends Controller
             $completed = strpos($output, 'Synchronization completed successfully!') !== false;
 
             (new StatistikController())->sync();
+
             return response()->json([
                 'success' => true,
                 'summary' => $summary ?? '',

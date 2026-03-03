@@ -31,6 +31,7 @@ class SubIndikatorController extends Controller
             'subindikator' => 'required|string|max:255',
             'bobot' => 'required|numeric|min:0|max:999.99',
             'isactive' => 'required|boolean',
+            'auto_sync' => 'sometimes|boolean',
             'indikator_id' => 'required|uuid|exists:indikators,id',
         ]);
 
@@ -111,6 +112,7 @@ class SubIndikatorController extends Controller
             'subindikator' => 'sometimes|string|max:255',
             'bobot' => 'sometimes|numeric|min:0|max:999.99',
             'isactive' => 'sometimes|boolean',
+            'auto_sync' => 'sometimes|boolean',
             'indikator_id' => 'sometimes|uuid|exists:indikators,id',
         ]);
 

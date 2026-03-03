@@ -16,12 +16,14 @@ class SubIndikator extends Model
         'subindikator',
         'bobot',
         'isactive',
+        'auto_sync',
         'indikator_id',
     ];
 
     protected $casts = [
         'bobot' => 'decimal:2',
         'isactive' => 'boolean',
+        'auto_sync' => 'boolean',
     ];
 
     public function indikator()
