@@ -27,10 +27,24 @@ class Pegawai extends Model
         'golongan',
         'json',
         'avatar',
+        'riwayat_jabatan',
+        'riwayat_skp',
+        'riwayat_pengembangan_kompetensi',
+        'riwayat_diklat',
+        'riwayat_sertifikasi',
+        'riwayat_pendidikan',
+        'last_sync_penilaian',
     ];
 
     protected $casts = [
-        'json' => 'array',
+        'json'                             => 'array',
+        'riwayat_jabatan'                  => 'array',
+        'riwayat_skp'                      => 'array',
+        'riwayat_pengembangan_kompetensi'  => 'array',
+        'riwayat_diklat'                   => 'array',
+        'riwayat_sertifikasi'              => 'array',
+        'riwayat_pendidikan'               => 'array',
+        'last_sync_penilaian'              => 'datetime',
     ];
 
     /**

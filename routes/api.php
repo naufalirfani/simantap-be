@@ -41,11 +41,11 @@ Route::get('pegawai/rekomendasi/{peta_jabatan_id}', [PegawaiController::class, '
 Route::get('pegawai/{nip}', [PegawaiController::class, 'show']);
 
 // Penilaian Routes
-Route::apiResource('penilaians', PenilaianController::class);
-// Trigger recalculation / sync of all penilaian records
+// Custom routes must be declared BEFORE apiResource to prevent {penilaian} wildcard from catching them
 Route::post('penilaians/sync', [PenilaianController::class, 'sync']);
-// Bulk upload penilaian via Excel/CSV
+Route::get('penilaians/sync-status', [PenilaianController::class, 'syncStatus']);
 Route::post('penilaians/bulk', [PenilaianController::class, 'bulk']);
+Route::apiResource('penilaians', PenilaianController::class);
 // Standar Kompetensi MSK CRUD
 Route::apiResource('standar-kompetensi-msk', StandarKompetensiMskController::class);
 // Bulk update standar kompetensi

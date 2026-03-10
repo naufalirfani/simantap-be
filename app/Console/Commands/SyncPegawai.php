@@ -69,6 +69,7 @@ class SyncPegawai extends Command
                         'include_avatar' => 'true',
                         'per_page' => 100,
                         'page' => $currentPage,
+                        'include_riwayat_pendidikan' => 'true',
                     ]);
                 /** @var \Illuminate\Http\Client\Response $response */
                 if (!$response->successful()) {
@@ -214,6 +215,7 @@ class SyncPegawai extends Command
                         'golongan' => $item['golongan'] ?? null,
                         'json' => $item['json'] ?? [],
                         'avatar' => $item['avatar'] ?? null,
+                        'riwayat_pendidikan' => $item['riwayat_pendidikan'] ?? null,
                     ];
 
                     if ($exists) {

@@ -47,9 +47,9 @@ class InstrumenSeeder extends Seeder
             ['parent' => 'Pengembangan Kompetensi', 'instrumen' => 'e. Jumlah Sertifikat Kepesertaan Pelatihan dan Pengembangan Kompetensi dalam 3 tahun terakhir sebanyak 0 kali', 'skor' => 0.00],
             // Diklat Kepemimpinan/Keahlian/Penjenjangan
             // Jumlah Sertifikasi Keahlian / Diklat Penjenjangan 3 tahun terakhir
-            ['parent' => 'Diklat Kepemimpinan/Keahlian/Penjenjangan', 'instrumen' => 'f. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 3 kali atau lebih', 'skor' => 100.00],
-            ['parent' => 'Diklat Kepemimpinan/Keahlian/Penjenjangan', 'instrumen' => 'g. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 1-2 kali', 'skor' => 50.00],
-            ['parent' => 'Diklat Kepemimpinan/Keahlian/Penjenjangan', 'instrumen' => 'h. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 0 kali', 'skor' => 0.00],
+            ['parent' => 'Diklat Kepemimpinan/Keahlian/Penjenjangan', 'instrumen' => 'a. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 3 kali atau lebih', 'skor' => 100.00],
+            ['parent' => 'Diklat Kepemimpinan/Keahlian/Penjenjangan', 'instrumen' => 'b. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 1-2 kali', 'skor' => 50.00],
+            ['parent' => 'Diklat Kepemimpinan/Keahlian/Penjenjangan', 'instrumen' => 'c. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 0 kali', 'skor' => 0.00],
             // Penghargaan atas Capaian Kinerja
             ['parent' => 'Penghargaan atas Capaian Kinerja', 'instrumen' => 'a. Peraih penghargaan di lingkup Internasional dalam 5 tahun terakhir', 'skor' => 100.00],
             ['parent' => 'Penghargaan atas Capaian Kinerja', 'instrumen' => 'b. Peraih penghargaan di lingkup Nasional dalam 5 tahun terakhir', 'skor' => 75.00],

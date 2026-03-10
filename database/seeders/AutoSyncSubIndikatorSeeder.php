@@ -10,7 +10,11 @@ class AutoSyncSubIndikatorSeeder extends Seeder
     private const AUTO_SYNC_SUBINDIKATORS = [
         'Penilaian Kerja (SKP)',
         'Tingkat Pendidikan Formal',
-        'Integritas/Moralitas'
+        'Integritas/Moralitas',
+        'Lama Jabatan',
+        'Keragaman Riwayat Jabatan',
+        'Pengembangan Kompetensi',
+        'Diklat Kepemimpinan/Keahlian/Penjenjangan',
     ];
 
     public function run(): void

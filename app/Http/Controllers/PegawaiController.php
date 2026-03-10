@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Pegawai;
-use App\Services\PenilaianSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 
@@ -34,8 +33,6 @@ class PegawaiController extends Controller
             }
 
             $completed = strpos($output, 'Synchronization completed successfully!') !== false;
-
-            (new StatistikController())->sync();
 
             return response()->json([
                 'success' => true,
@@ -114,7 +111,7 @@ class PegawaiController extends Controller
             if (!$withPagination) {
                 $perPage = PHP_INT_MAX;
             }
-            
+
             $pegawai = $query->orderBy('name')->paginate($perPage);
 
             // If requested, preload subindikator -> kategori map so we can compute sums
@@ -131,7 +128,7 @@ class PegawaiController extends Controller
                         $subKategoriMap[$pid] = 'kinerja';
                     } else {
                         // default: consider as kinerja
-                        $subKategoriMap[$pid] = 'kinerja';
+                        $subKategoriMap[$pid] = 'tambahan';
                     }
                 }
             }
@@ -170,7 +167,7 @@ class PegawaiController extends Controller
                             $kategori = $subKategoriMap[$subId] ?? 'kinerja';
                             if ($kategori === 'potensial') {
                                 $nilaiPot += $hasil;
-                            } else {
+                            } elseif ($kategori === 'kinerja') {
                                 $nilaiKin += $hasil;
                             }
                         }
@@ -240,6 +237,12 @@ class PegawaiController extends Controller
                 'json' => $pegawai->json,
                 'avatar' => $pegawai->avatar,
                 'lokasi_kerja' => $pegawai->lokasi_kerja,
+                'riwayat_jabatan' => $pegawai->riwayat_jabatan,
+                'riwayat_skp' => $pegawai->riwayat_skp,
+                'riwayat_pengembangan_kompetensi' => $pegawai->riwayat_pengembangan_kompetensi,
+                'riwayat_diklat' => $pegawai->riwayat_diklat,
+                'riwayat_sertifikasi' => $pegawai->riwayat_sertifikasi,
+                'riwayat_pendidikan' => $pegawai->riwayat_pendidikan,
                 'created_at' => $pegawai->created_at,
                 'updated_at' => $pegawai->updated_at,
             ];
@@ -256,7 +259,7 @@ class PegawaiController extends Controller
                     } elseif (strpos($indikatorPen, 'kinerja') !== false) {
                         $subKategoriMap[$pid] = 'kinerja';
                     } else {
-                        $subKategoriMap[$pid] = 'kinerja';
+                        $subKategoriMap[$pid] = 'tambahan';
                     }
                 }
 
@@ -276,7 +279,7 @@ class PegawaiController extends Controller
                         $kategori = $subKategoriMap[$subId] ?? 'kinerja';
                         if ($kategori === 'potensial') {
                             $nilaiPot += $hasil;
-                        } else {
+                        } else if ($kategori === 'kinerja') {
                             $nilaiKin += $hasil;
                         }
                     }
@@ -349,7 +352,7 @@ class PegawaiController extends Controller
             $syaratSuksesi = \App\Models\SyaratSuksesi::where('jabatan_id', $peta_jabatan_id)
                 ->orderBy('created_at', 'desc')
                 ->first();
-            
+
             $syaratMap = [];
             if ($syaratSuksesi && is_array($syaratSuksesi->syarat)) {
                 $syaratMap = $syaratSuksesi->syarat;
@@ -397,8 +400,10 @@ class PegawaiController extends Controller
                 $indikatorPen = strtolower($s->indikator->penilaian ?? '');
                 if (strpos($indikatorPen, 'potensial') !== false || strpos($indikatorPen, 'potensi') !== false) {
                     $subKategoriMap[$pid] = 'potensial';
-                } else {
+                } elseif (strpos($indikatorPen, 'kinerja') !== false) {
                     $subKategoriMap[$pid] = 'kinerja';
+                } else {
+                    $subKategoriMap[$pid] = 'tambahan';
                 }
             }
 
@@ -429,7 +434,7 @@ class PegawaiController extends Controller
             $candidates = [];
             foreach ($pegawaiCandidates as $item) {
                 $penObj = $item->penilaian ? $item->penilaian->penilaian : null;
-                
+
                 // Check if pegawai meets syarat suksesi requirements
                 $meetsSyarat = true;
                 if (!empty($syaratMap)) {
@@ -439,7 +444,7 @@ class PegawaiController extends Controller
 
                     foreach ($syaratMap as $subId => $minNilai) {
                         $pegawaiNilai = null;
-                        
+
                         if (array_key_exists($subId, $penObj)) {
                             $val = $penObj[$subId];
                             if (is_array($val) && array_key_exists('nilai', $val)) {
@@ -448,7 +453,7 @@ class PegawaiController extends Controller
                                 $pegawaiNilai = (float) $val;
                             }
                         }
-                        
+
                         // If pegawai doesn't have nilai for this subindikator or nilai is less than minimum
                         if ($pegawaiNilai === null || $pegawaiNilai < (float) $minNilai) {
                             $meetsSyarat = false;
@@ -456,12 +461,12 @@ class PegawaiController extends Controller
                         }
                     }
                 }
-                
+
                 // Skip this pegawai if they don't meet syarat suksesi
                 if (!$meetsSyarat) {
                     continue;
                 }
-                
+
                 $nilaiPot = 0.0;
                 $nilaiKin = 0.0;
                 if (is_array($penObj)) {
@@ -476,7 +481,7 @@ class PegawaiController extends Controller
                         $kategori = $subKategoriMap[$subId] ?? 'kinerja';
                         if ($kategori === 'potensial') {
                             $nilaiPot += $hasil;
-                        } else {
+                        } elseif ($kategori === 'kinerja') {
                             $nilaiKin += $hasil;
                         }
                     }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\DispatchSyncPenilaianJob;
 use App\Models\Pegawai;
 use App\Models\Penilaian;
 use App\Models\StandarKompetensiMsk;
@@ -35,11 +36,101 @@ class PenilaianController extends Controller
     }
 
     /**
-     * Recalculate and sync penilaian records.
+     * Monitor sync penilaian progress.
+     * GET /api/penilaians/sync-status
+     *
+     * Optional params:
+     *   nip (string|string[]) – restrict status to specific NIP(s), same as sync endpoint
+     *
+     * Returns:
+     *   total          – total pegawai in scope
+     *   synced         – pegawai with last_sync_penilaian not null
+     *   pending        – pegawai with last_sync_penilaian null
+     *   last_sync_at   – most recent last_sync_penilaian timestamp
+     *   oldest_sync_at – oldest last_sync_penilaian timestamp (non-null)
+     *   queue_pending  – number of SyncPenilaianBatchJob entries still in the jobs table
+     *   filter_nips         – nip filter applied, or null if all pegawai
+     *   session_dispatched_at – when the latest sync was triggered
+     *   session_total_nips    – total NIPs in the latest sync session
+     *   session_total_batches – total batch jobs dispatched in the latest sync
+     *   session_synced        – NIPs completed since the latest sync was triggered
+     *   session_pending       – NIPs not yet completed in the latest sync
+     *   queue_pending         – batch jobs still waiting in the queue
+     *   queue_completed       – batch jobs already processed in the latest sync
+     */
+    public function syncStatus(Request $request)
+    {
+        try {
+            $filterNips = null;
+            if ($request->filled('nip')) {
+                $raw        = $request->input('nip');
+                $filterNips = is_array($raw) ? array_map('strval', $raw) : [strval($raw)];
+            }
+
+            $baseQuery = fn () => $filterNips !== null
+                ? Pegawai::whereIn('nip', $filterNips)
+                : Pegawai::query();
+
+            $total        = $baseQuery()->count();
+            $lastSyncAt   = $baseQuery()->whereNotNull('last_sync_penilaian')->max('last_sync_penilaian');
+            $oldestSyncAt = $baseQuery()->whereNotNull('last_sync_penilaian')->min('last_sync_penilaian');
+
+            // Current sync session metadata (stored by DispatchSyncPenilaianJob)
+            $session             = DB::table('penilaian_sync_sessions')->latest('id')->first();
+            $sessionDispatchedAt = $session->dispatched_at ?? null;
+            $sessionTotalNips    = $session->total_nips ?? null;
+            $sessionTotalBatches = $session->total_batches ?? null;
+
+            // Progress within current session: count NIPs synced AFTER the session started
+            $sessionSynced  = null;
+            $sessionPending = null;
+            if ($sessionDispatchedAt) {
+                $sessionSynced  = $baseQuery()->where('last_sync_penilaian', '>=', $sessionDispatchedAt)->count();
+                $sessionPending = ($sessionTotalNips ?? $total) - $sessionSynced;
+            }
+
+            // Queue job progress
+            $queuePending   = null;
+            $queueCompleted = null;
+            try {
+                $queuePending = DB::table('jobs')
+                    ->where('payload', 'like', '%SyncPenilaianBatchJob%')
+                    ->count();
+                if ($sessionTotalBatches !== null) {
+                    $queueCompleted = $sessionTotalBatches - $queuePending;
+                }
+            } catch (\Exception $e) {
+                // Queue table may not exist when using non-database driver
+            }
+
+            return response()->json([
+                'total'                => $total,
+                'last_sync_at'         => $lastSyncAt,
+                'oldest_sync_at'       => $oldestSyncAt,
+                'filter_nips'          => $filterNips,
+                'session_dispatched_at'=> $sessionDispatchedAt,
+                'session_total_nips'   => $sessionTotalNips,
+                'session_total_batches'=> $sessionTotalBatches,
+                'session_synced'       => $sessionSynced,
+                'session_pending'      => $sessionPending,
+                'queue_pending'        => $queuePending,
+                'queue_completed'      => $queueCompleted,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Recalculate and sync penilaian records (runs in background via queue).
      * POST /api/penilaians/sync
      *
      * Optional params:
      *   nip (string|string[]) – restrict sync to specific NIP(s)
+     *
+     * When > 100 pegawai are involved the work is automatically split into
+     * batches of 100, each processed by a separate queued job.
+     * Returns 202 Accepted immediately.
      */
     public function sync(Request $request)
     {
@@ -50,11 +141,23 @@ class PenilaianController extends Controller
                 $filterNips = is_array($raw) ? array_map('strval', $raw) : [strval($raw)];
             }
 
-            $result = $this->syncService->syncPenilaian($filterNips);
+            // Insert sync session row so syncStatus can track current-session progress
+            DB::table('penilaian_sync_sessions')->insert([
+                'dispatched_at' => now(),
+                'total_nips'    => null,
+                'total_batches' => null,
+                'created_at'    => now(),
+                'updated_at'    => now(),
+            ]);
 
-            return response()->json(['success' => true, ...$result], 200);
+            DispatchSyncPenilaianJob::dispatch($filterNips);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Sync job dispatched. Processing will run in the background.',
+            ], 202);
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => 'Sync failed', 'error' => $e->getMessage()], 500);
+            return response()->json(['success' => false, 'message' => 'Failed to dispatch sync job', 'error' => $e->getMessage()], 500);
         }
     }
 
