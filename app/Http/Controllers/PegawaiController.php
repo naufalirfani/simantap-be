@@ -407,28 +407,39 @@ class PegawaiController extends Controller
                 }
             }
 
-            $intervals = $daftarKotak->intervals ?? null;
+            // Build subindikator name map for nilai_kompetensi_teknis lookup
+            $subNamaMap = [];
+            foreach ($subs as $s) {
+                $subNamaMap[$s->id] = strtolower($s->subindikator ?? '');
+            }
 
-            $getIntervalIndex = function ($value, $arr) {
-                if ($arr === null) return null;
-                // If array of ranges with min/max
-                foreach ($arr as $i => $it) {
-                    if (is_array($it) && (array_key_exists('min', $it) || array_key_exists('max', $it))) {
-                        $min = array_key_exists('min', $it) ? (float)$it['min'] : null;
-                        $max = array_key_exists('max', $it) ? (float)$it['max'] : null;
-                        if (($min === null || $value >= $min) && ($max === null || $value <= $max)) {
-                            return $i; // index corresponds to kotak level ordering
-                        }
+            // Determine weighting based on vacant position type
+            $weightMap = [
+                'Jabatan Pimpinan Tinggi Madya'   => ['total' => 0.8, 'teknis' => 0.2],
+                'Jabatan Pimpinan Tinggi Pratama' => ['total' => 0.7, 'teknis' => 0.3],
+                'Jabatan Administrator'           => ['total' => 0.6, 'teknis' => 0.4],
+                'Jabatan Pengawas'                => ['total' => 0.5, 'teknis' => 0.5],
+            ];
+            $weights = $weightMap[$mappedType] ?? null;
+
+            $kotakList = $daftarKotak->kotak ?? null;
+
+            $getKotakId = function ($potensial, $kinerja) use ($kotakList) {
+                if (!is_array($kotakList)) return 0;
+                foreach ($kotakList as $kotak) {
+                    $potMin = isset($kotak['potensialRange']['min']) ? (float)$kotak['potensialRange']['min'] : null;
+                    $potMax = isset($kotak['potensialRange']['max']) ? (float)$kotak['potensialRange']['max'] : null;
+                    $kinMin = isset($kotak['kinerjaRange']['min']) ? (float)$kotak['kinerjaRange']['min'] : null;
+                    $kinMax = isset($kotak['kinerjaRange']['max']) ? (float)$kotak['kinerjaRange']['max'] : null;
+
+                    $potMatch = ($potMin === null || $potensial >= $potMin) && ($potMax === null || $potensial <= $potMax);
+                    $kinMatch = ($kinMin === null || $kinerja >= $kinMin) && ($kinMax === null || $kinerja <= $kinMax);
+
+                    if ($potMatch && $kinMatch) {
+                        return (int)($kotak['id'] ?? 0);
                     }
                 }
-                // If array of numeric thresholds (ascending), return last index where value >= threshold
-                $last = null;
-                foreach ($arr as $i => $threshold) {
-                    if (is_numeric($threshold) && $value >= (float)$threshold) {
-                        $last = $i;
-                    }
-                }
-                return $last;
+                return 0;
             };
 
             $candidates = [];
@@ -487,25 +498,34 @@ class PegawaiController extends Controller
                     }
                 }
 
-                $potIndex = null;
-                $kinIndex = null;
-                if (is_array($intervals)) {
-                    if (array_key_exists('potensial', $intervals)) {
-                        $potIndex = $getIntervalIndex($nilaiPot, $intervals['potensial']);
-                    }
-                    if (array_key_exists('kinerja', $intervals)) {
-                        $kinIndex = $getIntervalIndex($nilaiKin, $intervals['kinerja']);
+                // Extract nilai_kompetensi_teknis
+                $nilaiKompetensiTeknis = 0.0;
+                if (is_array($penObj)) {
+                    foreach ($penObj as $subId => $val) {
+                        if (isset($subNamaMap[$subId]) && strpos($subNamaMap[$subId], 'nilai kompetensi teknis') !== false) {
+                            $hasil = null;
+                            if (is_array($val) && array_key_exists('hasil', $val)) {
+                                $hasil = (float) $val['hasil'];
+                            } elseif (is_numeric($val)) {
+                                $hasil = (float) $val;
+                            }
+                            if ($hasil !== null) {
+                                $nilaiKompetensiTeknis += $hasil;
+                            }
+                        }
                     }
                 }
 
-                // kotak rank: prefer the higher index (assuming higher index == higher kotak position)
-                $kotakRank = null;
-                if ($potIndex !== null || $kinIndex !== null) {
-                    $kotakRank = max((int)($potIndex ?? -INF), (int)($kinIndex ?? -INF));
-                } else {
-                    // fallback: use total score as rank
-                    $kotakRank = (int)round($nilaiPot + $nilaiKin);
-                }
+                // total = average of potensial and kinerja
+                $total = ($nilaiPot + $nilaiKin) / 2;
+
+                // nilai_akhir_talenta with weighting based on vacant position type
+                $nilaiAkhirTalenta = $weights
+                    ? round($total * $weights['total'] + $nilaiKompetensiTeknis * $weights['teknis'], 2)
+                    : round($total, 2);
+
+                // Determine kotak based on both potensial and kinerja ranges
+                $kotakRank = $getKotakId($nilaiPot, $nilaiKin);
 
                 $dob = $item->json['tglLahir'] ?? null;
                 $dobTs = $dob ? strtotime($dob) : null;
@@ -515,7 +535,9 @@ class PegawaiController extends Controller
                     'penObj' => $penObj,
                     'nilai_pot' => round($nilaiPot, 2),
                     'nilai_kin' => round($nilaiKin, 2),
-                    'total' => $nilaiPot + $nilaiKin,
+                    'nilai_kompetensi_teknis' => round($nilaiKompetensiTeknis, 2),
+                    'total' => round($total, 2),
+                    'nilai_akhir_talenta' => $nilaiAkhirTalenta,
                     'kotak_rank' => $kotakRank,
                     'dob_ts' => $dobTs,
                 ];
@@ -526,15 +548,12 @@ class PegawaiController extends Controller
                 if ($a['kotak_rank'] !== $b['kotak_rank']) {
                     return $b['kotak_rank'] <=> $a['kotak_rank'];
                 }
-                // 2) total (pot + kin) desc
-                if ($a['total'] !== $b['total']) {
-                    return $b['total'] <=> $a['total'];
+                // 2) nilai_akhir_talenta desc
+                if ($a['nilai_akhir_talenta'] !== $b['nilai_akhir_talenta']) {
+                    return $b['nilai_akhir_talenta'] <=> $a['nilai_akhir_talenta'];
                 }
-                // 3) nilai_pot desc
-                if ($a['nilai_pot'] !== $b['nilai_pot']) {
-                    return $b['nilai_pot'] <=> $a['nilai_pot'];
-                }
-                // 4) age: older first -> smaller dob_ts means older
+
+                // 3) age: older first -> smaller dob_ts means older
                 if ($a['dob_ts'] !== $b['dob_ts']) {
                     if ($a['dob_ts'] === null) return 1;
                     if ($b['dob_ts'] === null) return -1;
@@ -559,7 +578,9 @@ class PegawaiController extends Controller
                     'penilaian' => $c['penObj'],
                     'nilai_potensial' => round($c['nilai_pot'], 2),
                     'nilai_kinerja' => round($c['nilai_kin'], 2),
-                    'total_nilai' => round($c['total'], 2),
+                    'nilai_kompetensi_teknis' => $c['nilai_kompetensi_teknis'],
+                    'nilai_talenta' => $c['total'],
+                    'nilai_akhir_talenta' => $c['nilai_akhir_talenta'],
                     'kotak_rank' => $c['kotak_rank'],
                 ];
             }, $top);
