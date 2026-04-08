@@ -53,7 +53,7 @@ class PenilaianSyncService
     ): float {
         if ($usesStandarMsk) {
             $standar = $standar ?? 0.0;
-            return $standar > 0 ? ($nilai / $standar) * 100.0 * ($bobot / 100.0) : 0.0;
+            return $standar > 0 ? ((($nilai < $standar) ? $nilai : $standar) / $standar) * 100.0 * ($bobot / 100.0) : 0.0;
         }
 
         if ($usesStandarPotensi) {

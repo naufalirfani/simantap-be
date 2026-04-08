@@ -207,6 +207,7 @@ class PegawaiController extends Controller
     {
         try {
             $withPenilaian = $request->boolean('with_penilaian', false);
+            $withRiwayatAsesmen = $request->boolean('with_riwayat_asesmen', false);
 
             $query = Pegawai::where('nip', $nip)
                 ->when($withPenilaian, function ($q) {
@@ -263,6 +264,28 @@ class PegawaiController extends Controller
                     }
                 }
 
+                // Use the same kotak interval logic as recommend()
+                $daftarKotak = \App\Models\DaftarKotak::latest()->first();
+                $kotakList = $daftarKotak->kotak ?? null;
+
+                $getKotakId = function ($potensial, $kinerja) use ($kotakList) {
+                    if (!is_array($kotakList)) return 0;
+                    foreach ($kotakList as $kotak) {
+                        $potMin = isset($kotak['potensialRange']['min']) ? (float)$kotak['potensialRange']['min'] : null;
+                        $potMax = isset($kotak['potensialRange']['max']) ? (float)$kotak['potensialRange']['max'] : null;
+                        $kinMin = isset($kotak['kinerjaRange']['min']) ? (float)$kotak['kinerjaRange']['min'] : null;
+                        $kinMax = isset($kotak['kinerjaRange']['max']) ? (float)$kotak['kinerjaRange']['max'] : null;
+
+                        $potMatch = ($potMin === null || $potensial >= $potMin) && ($potMax === null || $potensial <= $potMax);
+                        $kinMatch = ($kinMin === null || $kinerja >= $kinMin) && ($kinMax === null || $kinerja <= $kinMax);
+
+                        if ($potMatch && $kinMatch) {
+                            return (int)($kotak['id'] ?? 0);
+                        }
+                    }
+                    return 0;
+                };
+
                 $penObj = $pegawai->penilaian ? $pegawai->penilaian->penilaian : null;
                 $nilaiPot = 0.0;
                 $nilaiKin = 0.0;
@@ -285,9 +308,23 @@ class PegawaiController extends Controller
                     }
                 }
 
+                $kotakRank = $getKotakId($nilaiPot, $nilaiKin);
+
                 $data['penilaian'] = $penObj;
                 $data['nilai_potensial'] = round($nilaiPot, 2);
                 $data['nilai_kinerja'] = round($nilaiKin, 2);
+                $data['kotak_rank'] = $kotakRank;
+            }
+
+            if ($withRiwayatAsesmen) {
+                $data['riwayat_asesmen'] = \App\Models\RiwayatAsesmen::query()
+                    ->where('pegawai_id', $pegawai->id)
+                    ->selectRaw('DISTINCT ON (pegawai_id, nama_asesmen) riwayat_asesmen.*')
+                    ->orderBy('pegawai_id')
+                    ->orderBy('nama_asesmen')
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id')
+                    ->get();
             }
 
             return response()->json([

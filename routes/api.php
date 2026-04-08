@@ -9,6 +9,7 @@ use App\Http\Controllers\StatistikController;
 use App\Http\Controllers\SubIndikatorController;
 use App\Http\Controllers\DaftarKotakController;
 use App\Http\Controllers\PenilaianController;
+use App\Http\Controllers\RiwayatAsesmenController;
 use App\Http\Controllers\StandarKompetensiMskController;
 use App\Http\Controllers\SyaratSuksesiController;
 use Illuminate\Support\Facades\Route;
@@ -46,6 +47,9 @@ Route::post('penilaians/sync', [PenilaianController::class, 'sync']);
 Route::get('penilaians/sync-status', [PenilaianController::class, 'syncStatus']);
 Route::post('penilaians/bulk', [PenilaianController::class, 'bulk']);
 Route::apiResource('penilaians', PenilaianController::class);
+Route::get('riwayat-asesmens/nama-asesmen', [RiwayatAsesmenController::class, 'uniqueNamaAsesmen']);
+Route::get('riwayat-asesmens/pegawai/{pegawai_id}', [RiwayatAsesmenController::class, 'showByPegawai']);
+Route::apiResource('riwayat-asesmens', RiwayatAsesmenController::class);
 // Standar Kompetensi MSK CRUD
 Route::apiResource('standar-kompetensi-msk', StandarKompetensiMskController::class);
 // Bulk update standar kompetensi

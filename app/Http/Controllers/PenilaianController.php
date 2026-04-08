@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\DispatchSyncPenilaianJob;
 use App\Models\Pegawai;
 use App\Models\Penilaian;
+use App\Models\RiwayatAsesmen;
 use App\Models\StandarKompetensiMsk;
 use App\Models\SubIndikator;
 use App\Services\PenilaianSyncService;
@@ -279,6 +280,17 @@ class PenilaianController extends Controller
      */
     public function bulk(Request $request)
     {
+        $isAsesmen = $request->boolean('isAsesmen', false);
+        $namaAsesmen = trim((string) $request->input('nama_asesmen', ''));
+        $asesmenIndikatorNames = [
+            'Penilaian Kompetensi Manajerial dan Sosial Kultural',
+            'Penilaian Potensi Talenta',
+        ];
+
+        if ($isAsesmen && $namaAsesmen === '') {
+            return response()->json(['message' => 'nama_asesmen is required when isAsesmen=true'], 422);
+        }
+
         // Support JSON payload from BE: { "penilaians": [ { "_rowIndex":2, "nip":"...", "nama":"...", "Sub A":"", "Sub B":"1.0" } ] }
         if ($request->has('penilaians')) {
             $rows = $request->get('penilaians');
@@ -356,7 +368,7 @@ class PenilaianController extends Controller
             try {
                 foreach ($rows as $r) {
                     $rowIndex = $r['_rowIndex'] ?? null;
-                    $nip = isset($r['nip']) ? trim((string) $r['nip']) : '';
+                    $nip = trim((string) (array_change_key_case($r, CASE_LOWER)['nip'] ?? ''));
                     if ($nip === '') {
                         $failed[] = ['row' => $rowIndex, 'reason' => 'Empty NIP'];
                         continue;
@@ -391,6 +403,11 @@ class PenilaianController extends Controller
                         $subId = $sub->id;
                         $nilai = (float) $value;
                         $bobot = (float) ($sub->bobot ?? 0);
+
+                        $indikatorName = $sub->indikator->indikator ?? null;
+                        if (in_array($indikatorName, $asesmenIndikatorNames, true) && !$isAsesmen) {
+                            continue;
+                        }
 
                         // Determine if this indikator uses standar-based calculation
                         $usesStandarMsk     = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
@@ -438,6 +455,15 @@ class PenilaianController extends Controller
                         $rec->penilaian = $penilaian;
                         $rec->save();
                     }
+
+                    if ($isAsesmen) {
+                        RiwayatAsesmen::create([
+                            'nama_asesmen' => $namaAsesmen,
+                            'pegawai_id' => $pegawai->id,
+                            'data_asesmen' => $penilaian,
+                        ]);
+                    }
+
                     $created++;
                 }
                 DB::commit();
@@ -560,6 +586,12 @@ class PenilaianController extends Controller
                     $subId = $sub->id;
                     $nilai = (float) $value;
                     $bobot = (float) ($sub->bobot ?? 0);
+
+                    $indikatorName = $sub->indikator->indikator ?? null;
+                    if (in_array($indikatorName, $asesmenIndikatorNames, true) && !$isAsesmen) {
+                        continue;
+                    }
+
                     $usesStandarMsk     = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
                     $usesStandarPotensi = $sub->indikator->indikator === 'Penilaian Potensi Talenta';
 
@@ -608,6 +640,15 @@ class PenilaianController extends Controller
                     $rec->penilaian = $penilaian;
                     $rec->save();
                 }
+
+                if ($isAsesmen) {
+                    RiwayatAsesmen::create([
+                        'nama_asesmen' => $namaAsesmen,
+                        'pegawai_id' => $pegawai->id,
+                        'data_asesmen' => $penilaian,
+                    ]);
+                }
+
                 $created++;
             }
             DB::commit();
