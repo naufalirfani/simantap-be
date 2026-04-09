@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
             DaftarKotakSeeder::class,
             JenisJabatanSeeder::class,
             StandarKompetensiMskSeeder::class,
+            LampiranAsesmenFromStorageSeeder::class,
         ]);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\LampiranAsesmen;
 use App\Models\Pegawai;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Http\Response;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
@@ -78,11 +79,13 @@ class LampiranAsesmenController extends Controller
                 $file = $request->file('file');
                 $pegawaiId = $validated['pegawai_id'];
                 $namaAsesmenSnake = Str::snake($validated['nama_asesmen']);
+                $storageDirectory = "lampiran-asesmen/{$namaAsesmenSnake}";
+                $storedFileName = $this->buildStoredFileName($file);
                 
                 // Store file in private storage: storage/app/private/lampiran-asesmen/{nama_asesmen_snake}/
                 $filePath = $file->storeAs(
-                    "lampiran-asesmen/{$namaAsesmenSnake}",
-                    $file->hashName(),
+                    $storageDirectory,
+                    $storedFileName,
                     'local'
                 );
 
@@ -174,16 +177,19 @@ class LampiranAsesmenController extends Controller
                 $pegawaiId = $validated['pegawai_id'] ?? $lampiranAsesmen->pegawai_id;
                 $namaAsesmen = $validated['nama_asesmen'] ?? $lampiranAsesmen->nama_asesmen;
                 $namaAsesmenSnake = Str::snake($namaAsesmen);
+                $storageDirectory = "lampiran-asesmen/{$namaAsesmenSnake}";
 
                 // Delete old file if it exists
                 if ($lampiranAsesmen->file_path) {
                     Storage::disk('local')->delete($lampiranAsesmen->file_path);
                 }
 
+                $storedFileName = $this->buildStoredFileName($file);
+
                 // Store new file
                 $filePath = $file->storeAs(
-                    "lampiran-asesmen/{$namaAsesmenSnake}",
-                    $file->hashName(),
+                    $storageDirectory,
+                    $storedFileName,
                     'local'
                 );
 
@@ -246,16 +252,19 @@ class LampiranAsesmenController extends Controller
             if ($request->hasFile('file')) {
                 $file = $request->file('file');
                 $namaAsesmenSnake = Str::snake($namaAsesmen);
+                $storageDirectory = "lampiran-asesmen/{$namaAsesmenSnake}";
 
                 // Delete old file if exists
                 if ($lampiranAsesmen && $lampiranAsesmen->file_path) {
                     Storage::disk('local')->delete($lampiranAsesmen->file_path);
                 }
 
+                $storedFileName = $this->buildStoredFileName($file);
+
                 // Store new file
                 $filePath = $file->storeAs(
-                    "lampiran-asesmen/{$namaAsesmenSnake}",
-                    $file->hashName(),
+                    $storageDirectory,
+                    $storedFileName,
                     'local'
                 );
 
@@ -379,5 +388,28 @@ class LampiranAsesmenController extends Controller
                 'error' => $e->getMessage(),
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+    }
+
+    /**
+     * Build a safe, original-like filename.
+     * If the same filename is uploaded in the same directory, it will overwrite.
+     */
+    private function buildStoredFileName(UploadedFile $file): string
+    {
+        $originalName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+        $safeBaseName = Str::of($originalName)
+            ->ascii()
+            ->replaceMatches('/[^A-Za-z0-9\-_]+/', '_')
+            ->trim('_')
+            ->value();
+
+        if ($safeBaseName === '') {
+            $safeBaseName = 'file';
+        }
+
+        $extension = $file->getClientOriginalExtension();
+        $extensionPart = $extension !== '' ? ".{$extension}" : '';
+
+        return "{$safeBaseName}{$extensionPart}";
     }
 }
