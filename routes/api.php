@@ -12,6 +12,7 @@ use App\Http\Controllers\PenilaianController;
 use App\Http\Controllers\RiwayatAsesmenController;
 use App\Http\Controllers\StandarKompetensiMskController;
 use App\Http\Controllers\SyaratSuksesiController;
+use App\Http\Controllers\LampiranAsesmenController;
 use Illuminate\Support\Facades\Route;
 
 // Apply API token, logging and IP whitelist middleware to all API routes
@@ -67,4 +68,11 @@ Route::get('pengembangan/statistik', [PengembanganStatistikController::class, 'i
 // Daftar Kotak (intervals + kotak) Routes
 Route::get('daftar-kotak', [DaftarKotakController::class, 'index']);
 Route::post('daftar-kotak', [DaftarKotakController::class, 'store']);
+
+// Lampiran Asesmen Routes
+// Custom routes must be declared BEFORE apiResource to prevent {lampiran-asesmen} wildcard from catching them
+Route::get('lampiran-asesmens/{id}/download', [LampiranAsesmenController::class, 'download']);
+Route::post('lampiran-asesmens/by-pegawai-and-nama', [LampiranAsesmenController::class, 'updateByPegawaiAndNama']);
+Route::apiResource('lampiran-asesmens', LampiranAsesmenController::class);
+
 });

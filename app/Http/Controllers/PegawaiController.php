@@ -138,6 +138,7 @@ class PegawaiController extends Controller
                 $penObj = $item->penilaian ? $item->penilaian->penilaian : null;
 
                 $result = [
+                    'id' => $item->id,
                     'nip' => $item->nip,
                     'nama' => $item->name,
                     'email' => $item->email,
@@ -323,6 +324,15 @@ class PegawaiController extends Controller
                     ->orderBy('pegawai_id')
                     ->orderBy('nama_asesmen')
                     ->orderByDesc('created_at')
+                    ->orderByDesc('id')
+                    ->get();
+
+                $data['lampiran_asesmen'] = \App\Models\LampiranAsesmen::query()
+                    ->where('pegawai_id', $pegawai->id)
+                    ->selectRaw('DISTINCT ON (pegawai_id, nama_asesmen) lampiran_asesmen.*')
+                    ->orderBy('pegawai_id')
+                    ->orderBy('nama_asesmen')
+                    ->orderByDesc('updated_at')
                     ->orderByDesc('id')
                     ->get();
             }
