@@ -40,14 +40,16 @@ class SyncPegawai extends Command
         Log::info('Pegawai sync started');
 
         try {
-            $apiUrl = env('PEGAWAI_API_URL', 'https://cmb.tail91813a.ts.net/api/pegawai');
-            $apiToken = env('PEGAWAI_API_TOKEN');
+            $apiBaseUrl = rtrim(env('CMB_API_URL', 'https://cmb.tail91813a.ts.net/api'), '/');
+            $apiToken = env('CMB_API_TOKEN');
 
             if (!$apiToken) {
-                $this->error('PEGAWAI_API_TOKEN not configured in .env');
-                Log::error('PEGAWAI_API_TOKEN not configured');
+                $this->error('CMB_API_TOKEN not configured in .env');
+                Log::error('CMB_API_TOKEN not configured');
                 return Command::FAILURE;
             }
+
+            $apiUrl = "{$apiBaseUrl}/pegawai";
 
             $this->info("API URL: {$apiUrl}");
             Log::info("Fetching from API: {$apiUrl}");

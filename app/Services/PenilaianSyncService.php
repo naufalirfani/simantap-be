@@ -719,6 +719,164 @@ class PenilaianSyncService
     // Pengembangan Kompetensi – external API (rw-kursus) + DB cache
     // ─────────────────────────────────────────────────────────────
 
+    private function parseRiwayatDate(?string $value): ?\Carbon\Carbon
+    {
+        if (!$value) {
+            return null;
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        foreach (['d-m-Y', 'Y-m-d H:i:s', 'Y-m-d', 'd/m/Y'] as $format) {
+            try {
+                $date = \Carbon\Carbon::createFromFormat($format, $value);
+                if ($date !== false) {
+                    return $date->startOfDay();
+                }
+            } catch (\Exception $e) {
+                // Try the next format.
+            }
+        }
+
+        try {
+            return \Carbon\Carbon::parse($value)->startOfDay();
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    private function formatRiwayatDate(?string $value): ?string
+    {
+        $date = $this->parseRiwayatDate($value);
+        return $date ? $date->format('d-m-Y') : null;
+    }
+
+    private function fetchRiwayatPengembanganKompetensiSeminar(string $nip): ?array
+    {
+        $baseUrl = rtrim(env('CMB_API_URL', 'http://localhost:8000/api'), '/');
+        $token   = env('CMB_API_TOKEN', '');
+
+        try {
+            $response = Http::withHeaders([
+                'X-API-TOKEN' => $token,
+                'Accept'      => 'application/json',
+            ])->timeout(30)->get("{$baseUrl}/seminar/nip/{$nip}");
+
+            if (!$response->successful()) {
+                Log::warning("Seminar API non-success for NIP {$nip}", ['status' => $response->status()]);
+                return null;
+            }
+
+            $body     = $response->json();
+            $records  = data_get($body, 'data') ?? [];
+
+            if (!is_array($records)) {
+                Log::warning("Seminar API: unexpected payload for NIP {$nip}", ['body' => $body]);
+                return null;
+            }
+
+            $formatted = [];
+            foreach ($records as $record) {
+                if (!is_array($record)) {
+                    continue;
+                }
+
+                $sertifikatUrl = trim((string) ($record['sertifikat'] ?? ''));
+                $path = [];
+                if ($sertifikatUrl !== '') {
+                    $path['seminar'] = [
+                        'slug'    => 'seminar',
+                        'dok_id'  => (string) ($record['id'] ?? ''),
+                        'object'  => $sertifikatUrl,
+                        'dok_uri' => $sertifikatUrl,
+                        'dok_nama'=> 'Dok Sertifikat Seminar',
+                    ];
+                }
+
+                $tanggalMulai  = $this->formatRiwayatDate($record['tanggal_mulai'] ?? null);
+                $tanggalSelesai = $this->formatRiwayatDate($record['tanggal_selesai'] ?? null);
+                $approvedAt    = $this->formatRiwayatDate($record['approved_at'] ?? null);
+                $tahunKursus   = $this->parseRiwayatDate($record['tanggal_selesai'] ?? $record['tanggal_mulai'] ?? null)?->format('Y');
+
+                $formatted[] = [
+                    'id' => $record['id'] ?? null,
+                    'path' => $path,
+                    'idPns' => null,
+                    'nipBaru' => (string) ($record['nip'] ?? ''),
+                    'nipLama' => '',
+                    'createdAt' => $approvedAt,
+                    'jumlahJam' => (float) ($record['jumlah_jp'] ?? 0),
+                    'updatedAt' => $approvedAt,
+                    'namaKursus' => (string) ($record['nama_kegiatan'] ?? ''),
+                    'tahunKursus' => $tahunKursus,
+                    'noSertipikat' => (string) ($record['nomor_sertifikat'] ?? ''),
+                    'jenisDiklatId' => null,
+                    'jenisKursusId' => null,
+                    'tanggalKursus' => $tanggalMulai,
+                    'jenisKursusNama' => 'Seminar',
+                    'tanggalSelesaiKursus' => $tanggalSelesai,
+                    'jenisKursusSertifikat' => 'Seminar',
+                    'institusiPenyelenggara' => (string) ($record['penyelenggara'] ?? ''),
+                    'seminarLokasi' => $record['lokasi'] ?? null,
+                    'seminarDeskripsi' => $record['deskripsi'] ?? null,
+                    'seminarRumpunJabatan' => $record['rumpun_jabatan'] ?? null,
+                    'seminarSertifikat' => $record['sertifikat'] ?? null,
+                ];
+            }
+
+            return $formatted;
+        } catch (\Exception $e) {
+            Log::error("Seminar API error for NIP {$nip}: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    private function getRiwayatPengembanganKompetensiRecordKey(array $record): string
+    {
+        $noSertipikat = trim((string) ($record['noSertipikat'] ?? ''));
+        if ($noSertipikat !== '' && $noSertipikat !== '-') {
+            return 'sertifikat:' . mb_strtolower($noSertipikat);
+        }
+
+        $id = trim((string) ($record['seminarId'] ?? $record['id'] ?? ''));
+        if ($id !== '') {
+            return 'id:' . mb_strtolower($id);
+        }
+
+        $nama = trim((string) ($record['namaKursus'] ?? ''));
+        $tanggal = trim((string) ($record['tanggalSelesaiKursus'] ?? $record['tanggalKursus'] ?? ''));
+        $institusi = trim((string) ($record['institusiPenyelenggara'] ?? ''));
+
+        return 'hash:' . md5(mb_strtolower($nama . '|' . $tanggal . '|' . $institusi));
+    }
+
+    private function mergeRiwayatPengembanganKompetensiRecords(array ...$recordSets): array
+    {
+        $merged = [];
+        $seen   = [];
+
+        foreach ($recordSets as $records) {
+            foreach ($records as $record) {
+                if (!is_array($record)) {
+                    continue;
+                }
+
+                $key = $this->getRiwayatPengembanganKompetensiRecordKey($record);
+                if (isset($seen[$key])) {
+                    continue;
+                }
+
+                $seen[$key] = true;
+                $merged[] = $record;
+            }
+        }
+
+        return $merged;
+    }
+
     /**
      * Fetch riwayat kursus / pengembangan kompetensi for a single NIP.
      *
@@ -738,6 +896,9 @@ class PenilaianSyncService
         $baseUrl = rtrim(env('OKK_API_BASE_URL', 'https://okk.dpd.go.id/dpd-portal/openapi/talenta/rw'), '/');
         $token   = env('OKK_API_TOKEN', '');
 
+        $kursusRecords = null;
+        $seminarRecords = null;
+
         try {
             $response = Http::withHeaders([
                 'app-token'    => $token,
@@ -756,22 +917,42 @@ class PenilaianSyncService
 
             if (!is_array($records)) {
                 Log::warning("PengembanganKompetensi API: unexpected payload for NIP {$nip}", ['body' => $body]);
-                return is_array($pegawai->riwayat_pengembangan_kompetensi)
-                    ? $pegawai->riwayat_pengembangan_kompetensi
-                    : null;
+                $kursusRecords = null;
+            } else {
+                $kursusRecords = $records;
             }
-
-            // Persist to DB cache
-            $pegawai->riwayat_pengembangan_kompetensi = $records;
-            $pegawai->saveQuietly();
-
-            return $records;
         } catch (\Exception $e) {
             Log::error("PengembanganKompetensi API error for NIP {$nip}: " . $e->getMessage());
+            $kursusRecords = null;
+        }
+
+        $seminarRecords = $this->fetchRiwayatPengembanganKompetensiSeminar($nip);
+
+        if ($kursusRecords === null && $seminarRecords === null) {
             return is_array($pegawai->riwayat_pengembangan_kompetensi)
                 ? $pegawai->riwayat_pengembangan_kompetensi
                 : null;
         }
+
+        $cachedRecords = is_array($pegawai->riwayat_pengembangan_kompetensi)
+            ? $pegawai->riwayat_pengembangan_kompetensi
+            : [];
+
+        $recordSets = [
+            $kursusRecords ?? [],
+            $seminarRecords ?? [],
+        ];
+
+        if ($kursusRecords === null || $seminarRecords === null) {
+            $recordSets[] = $cachedRecords;
+        }
+
+        $mergedRecords = $this->mergeRiwayatPengembanganKompetensiRecords(...$recordSets);
+
+        $pegawai->riwayat_pengembangan_kompetensi = $mergedRecords;
+        $pegawai->saveQuietly();
+
+        return $mergedRecords;
     }
 
     /**
