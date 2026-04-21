@@ -3,7 +3,7 @@ set -e
 
 cd /var/www/html
 
-# Fix permissions for mounted volumes
+# Fix permissions untuk mounted volumes (karena volume mount override Dockerfile permissions)
 echo "👉 Fixing storage and bootstrap/cache permissions..."
 mkdir -p storage/logs storage/app/public storage/framework/cache storage/framework/sessions storage/framework/views
 mkdir -p bootstrap/cache
@@ -30,13 +30,13 @@ wait_for_postgres() {
 
 wait_for_postgres
 
-# Generate APP_KEY if not present
+# Generate APP_KEY kalau belum ada
 if ! grep -q "^APP_KEY=" .env || grep -q "^APP_KEY=$" .env; then
     echo "👉 APP_KEY belum ada, generate baru..."
     php artisan key:generate --force
 fi
 
-# Ensure storage link exists
+# Pastikan storage:link ada (skip jika sudah exists)
 if [ ! -L /var/www/html/public/storage ] && [ ! -d /var/www/html/public/storage ]; then
     echo "👉 Running: php artisan storage:link"
     php artisan storage:link || true
@@ -48,11 +48,11 @@ fi
 echo "👉 Running: php artisan migrate"
 php artisan migrate --force
 
-# Clear and optimize
+# Clear cache setiap kali start container
 echo "👉 Clearing Laravel cache"
-php artisan optimize:clear || true
+php artisan optimize:clear
 
 echo "👉 Optimizing Laravel caches"
-php artisan optimize || true
+php artisan optimize
 
 exec "$@"
