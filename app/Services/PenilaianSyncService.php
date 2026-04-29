@@ -1379,6 +1379,7 @@ class PenilaianSyncService
         $keragamanIds   = [];
         $pengembanganKompetensiIds = [];
         $diklatIds      = [];
+        $kesesuaianPendidikanIds = [];
 
         foreach ($allSub as $id => $s) {
             $name = $s->subindikator ?? '';
@@ -1441,6 +1442,13 @@ class PenilaianSyncService
                 )
             ) {
                 $diklatIds[] = $id;
+                continue;
+            }
+
+            // Kesesuaian Pendidikan dengan Jabatan Target: default value 50
+            if (stripos($name, 'Kesesuaian Pendidikan dengan Jabatan Target') !== false) {
+                $kesesuaianPendidikanIds[] = $id;
+                continue;
             }
         }
 
@@ -1453,6 +1461,7 @@ class PenilaianSyncService
         $keragamanSet   = array_flip($keragamanIds);
         $pengembanganKompetensiSet = array_flip($pengembanganKompetensiIds);
         $diklatSet                 = array_flip($diklatIds);
+        $kesesuaianPendidikanSet   = array_flip($kesesuaianPendidikanIds);
 
         $query = Pegawai::with('penilaian');
         if ($filterNips !== null) {
@@ -1543,6 +1552,9 @@ class PenilaianSyncService
                     } elseif (isset($diklatSet[$subId])) {
                         $nilai = $this->getNilaiDiklatKepemimpinan($riwayatDiklat, $riwayatSertifikasi, $instrBySub[$subId] ?? collect(), $riwayatPengembanganKompetensi)
                             ?? $oldNilai($subId);
+                    } elseif (isset($kesesuaianPendidikanSet[$subId])) {
+                        // Kesesuaian Pendidikan dengan Jabatan Target: default value 50
+                        $nilai = 50.0;
                     } else {
                         $nilai = $oldNilai($subId);
                     }
