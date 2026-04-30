@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\DecryptsEncryptedToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class AuthController extends Controller
 {
+    use DecryptsEncryptedToken;
+
     /**
      * Login admin with email and password from .env
      *
@@ -15,18 +18,30 @@ class AuthController extends Controller
      */
     public function login(Request $request): JsonResponse
     {
-        // Validate input
+        // Get credentials from environment
+        $adminEmail = env('ADMIN_EMAIL');
+        $adminPassword = env('ADMIN_PASSWORD');
+
+        $email = $this->normalizeCredential($request->input('email'), $adminEmail);
+        $password = $this->normalizeCredential($request->input('password'), $adminPassword);
+
+        if ($email === null || $password === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to decrypt email or password.',
+            ], 401);
+        }
+
+        // Validate input after decrypting encrypted payloads
+        $request->merge([
+            'email' => $email,
+            'password' => $password,
+        ]);
+
         $request->validate([
             'email' => 'required|email',
             'password' => 'required|string',
         ]);
-
-        $email = $request->input('email');
-        $password = $request->input('password');
-
-        // Get credentials from environment
-        $adminEmail = env('ADMIN_EMAIL');
-        $adminPassword = env('ADMIN_PASSWORD');
 
         // Check if credentials match
         if ($email === $adminEmail && $password === $adminPassword) {
@@ -53,6 +68,23 @@ class AuthController extends Controller
             'success' => false,
             'message' => 'Invalid email or password',
         ], 401);
+    }
+
+    private function normalizeCredential(?string $value, ?string $expectedValue): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (strpos($value, 'v1.aes:') !== 0) {
+            return $value;
+        }
+
+        if (empty($expectedValue)) {
+            return null;
+        }
+
+        return $this->decryptEncryptedToken($value, [$expectedValue]);
     }
 
     /**
