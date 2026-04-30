@@ -15,16 +15,20 @@ class VerifyApiToken
      */
     public function handle(Request $request, Closure $next)
     {
+        $requestOrigin = $request->headers->get('origin');
+        $allowedOrigins = config('cors.allowed_origins', []);
+
+        $normalizedOrigin = rtrim($requestOrigin, '/');
+        $normalizedAllowedOrigins = array_map(static fn($origin) => rtrim($origin, '/'), $allowedOrigins);
+
+        if (!in_array($normalizedOrigin, $normalizedAllowedOrigins, true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Forbidden Access.'
+            ], 403);
+        }
         $apiToken = $request->header('X-API-TOKEN') ?? $request->query('api_token');
         $validTokens = config('app.api_tokens', []);
-
-        // If token is encrypted (client prefix: v1.aes:), try decrypting
-        if (!empty($apiToken) && strpos($apiToken, 'v1.aes:') === 0) {
-            $decrypted = $this->decryptEncryptedToken($apiToken, $validTokens);
-            if (!empty($decrypted)) {
-                $apiToken = $decrypted;
-            }
-        }
 
         if (empty($validTokens)) {
             return response()->json([
@@ -36,14 +40,23 @@ class VerifyApiToken
         if (empty($apiToken)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Missing API token. Please provide X-API-TOKEN header.'
+                'message' => 'Missing API token.'
             ], 401);
         }
 
-        if (!in_array($apiToken, $validTokens)) {
+        if (strpos($apiToken, 'v1.aes:') !== 0) {
             return response()->json([
                 'success' => false,
-                'message' => 'Unauthorized: invalid API token.'
+                'message' => 'Invalid API token.'
+            ], 401);
+        }
+
+        $decrypted = $this->decryptEncryptedToken($apiToken, $validTokens);
+
+        if (empty($decrypted) || !in_array($decrypted, $validTokens, true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid API token.'
             ], 401);
         }
 
