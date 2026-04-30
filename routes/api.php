@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AuthController;
 use App\Http\Controllers\IndikatorController;
 use App\Http\Controllers\InstrumenController;
 use App\Http\Controllers\PegawaiController;
@@ -14,6 +15,10 @@ use App\Http\Controllers\StandarKompetensiMskController;
 use App\Http\Controllers\SyaratSuksesiController;
 use App\Http\Controllers\LampiranAsesmenController;
 use Illuminate\Support\Facades\Route;
+
+// Admin Authentication Routes (no middleware)
+Route::post('admin/login', [AuthController::class, 'login']);
+Route::post('admin/logout', [AuthController::class, 'logout']);
 
 // Apply API token, logging and IP whitelist middleware to all API routes
 Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->group(function () {
