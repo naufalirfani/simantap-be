@@ -52,6 +52,9 @@ class SetSecurityHeaders
 
         // Remove server information disclosure
         $response->header('Server', 'Application Server');
+        
+        // Remove X-Powered-By header that exposes PHP
+        $response->headers->remove('X-Powered-By');
 
         // Disable client-side caching for sensitive data
         if ($request->is('api/*')) {
