@@ -17,8 +17,9 @@ use App\Http\Controllers\LampiranAsesmenController;
 use Illuminate\Support\Facades\Route;
 
 // Admin Authentication Routes (no middleware)
-Route::post('admin/login', [AuthController::class, 'login']);
-Route::post('admin/logout', [AuthController::class, 'logout']);
+Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/login', [AuthController::class, 'login']);
+Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/logout', [AuthController::class, 'logout']);
+Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/verify', [AuthController::class, 'verify']);
 
 // Apply API token, logging and IP whitelist middleware to all API routes
 Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->group(function () {
