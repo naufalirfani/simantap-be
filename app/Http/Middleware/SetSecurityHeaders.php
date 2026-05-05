@@ -20,22 +20,22 @@ class SetSecurityHeaders
         $response = $next($request);
 
         // Prevent browsers from MIME-type sniffing
-        $response->header('X-Content-Type-Options', 'nosniff');
+        $response->headers->set('X-Content-Type-Options', 'nosniff');
 
         // Prevent clickjacking attacks
-        $response->header('X-Frame-Options', 'DENY');
+        $response->headers->set('X-Frame-Options', 'DENY');
 
         // Enable XSS filtering in older browsers
-        $response->header('X-XSS-Protection', '1; mode=block');
+        $response->headers->set('X-XSS-Protection', '1; mode=block');
 
         // Force HTTPS connection for this domain and subdomains
-        $response->header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+        $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
 
         // Restrict which features and APIs can be used
-        $response->header('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
+        $response->headers->set('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
 
         // Control referrer information sent in requests
-        $response->header('Referrer-Policy', 'strict-origin-when-cross-origin');
+        $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
         // Content Security Policy - restrict resource loading
         $csp = "default-src 'self'; "
@@ -48,19 +48,19 @@ class SetSecurityHeaders
              . "base-uri 'self'; "
              . "form-action 'self'";
 
-        $response->header('Content-Security-Policy', $csp);
+        $response->headers->set('Content-Security-Policy', $csp);
 
         // Remove server information disclosure
-        $response->header('Server', 'Application Server');
+        $response->headers->set('Server', 'Application Server');
         
         // Remove X-Powered-By header that exposes PHP
         $response->headers->remove('X-Powered-By');
 
         // Disable client-side caching for sensitive data
         if ($request->is('api/*')) {
-            $response->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-            $response->header('Pragma', 'no-cache');
-            $response->header('Expires', '0');
+            $response->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+            $response->headers->set('Pragma', 'no-cache');
+            $response->headers->set('Expires', '0');
         }
 
         return $response;
