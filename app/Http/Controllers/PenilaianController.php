@@ -19,6 +19,35 @@ class PenilaianController extends Controller
 {
     public function __construct(private readonly PenilaianSyncService $syncService) {}
 
+    /**
+     * Update the latest riwayat_asesmen record for a pegawai.
+     * Only updates subindikator_id that already exist in data_asesmen.
+     */
+    private function updateRiwayatAsesmenForPenilaian(string $pegawaiId, array $penilaian): void
+    {
+        // Find the latest riwayat_asesmen by created_at
+        $riwayat = RiwayatAsesmen::where('pegawai_id', $pegawaiId)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if (!$riwayat) {
+            return;
+        }
+
+        // Get existing data_asesmen
+        $dataAsesmen = is_array($riwayat->data_asesmen) ? $riwayat->data_asesmen : [];
+
+        // Update only the subindikator_id that already exist in data_asesmen
+        foreach ($penilaian as $subindikatorId => $nilai) {
+            if (isset($dataAsesmen[$subindikatorId])) {
+                $dataAsesmen[$subindikatorId] = $nilai;
+            }
+        }
+
+        $riwayat->data_asesmen = $dataAsesmen;
+        $riwayat->save();
+    }
+
     public function index(Request $request)
     {
         try {
@@ -201,6 +230,9 @@ class PenilaianController extends Controller
             'penilaian' => $penilaian,
         ]);
 
+        // Update riwayat_asesmen if exists
+        $this->updateRiwayatAsesmenForPenilaian($data['pegawai_id'], $penilaian);
+
         return response()->json($record, 201);
     }
 
@@ -263,6 +295,11 @@ class PenilaianController extends Controller
         }
 
         $record->save();
+
+        // Update riwayat_asesmen if penilaian was updated
+        if (isset($data['penilaian'])) {
+            $this->updateRiwayatAsesmenForPenilaian($record->pegawai_id, $penilaian);
+        }
 
         return response()->json($record);
     }

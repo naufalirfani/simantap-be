@@ -716,6 +716,55 @@ class PenilaianSyncService
     }
 
     // ─────────────────────────────────────────────────────────────
+    // Penugasan dalam Tim Kerja / Penugasan Dalam Jabatan Nondefinitif
+    // ─────────────────────────────────────────────────────────────
+
+    private function getLatestAcceptedPengajuanScore(
+        string $pegawaiId,
+        string $subindikatorId,
+        ?\Carbon\Carbon $minTanggalSk = null
+    ): ?float {
+        $query = \App\Models\PengajuanPenilaian::with('instrumen')
+            ->where('pegawai_id', $pegawaiId)
+            ->where('subindikator_id', $subindikatorId)
+            ->where('status', 'Diterima')
+            ->orderByDesc('created_at');
+
+        if ($minTanggalSk !== null) {
+            $query->whereDate('tanggal_sk', '>=', $minTanggalSk->toDateString());
+        }
+
+        $pengajuan = $query->first();
+        if (!$pengajuan || !$pengajuan->instrumen) {
+            return null;
+        }
+
+        return (float) $pengajuan->instrumen->skor;
+    }
+
+    /**
+     * Derive the nilai for "Penugasan dalam Tim Kerja" from latest accepted
+     * pengajuan_penilaian within the last 2 years, then map to instrumen skor.
+     */
+    public function getNilaiPenugasanTimKerja(string $pegawaiId, string $subindikatorId): ?float
+    {
+        return $this->getLatestAcceptedPengajuanScore(
+            $pegawaiId,
+            $subindikatorId,
+            now()->subYears(2)->startOfDay()
+        );
+    }
+
+    /**
+     * Derive the nilai for "Penugasan Dalam Jabatan Nondefinitif" from the
+     * latest accepted pengajuan_penilaian and its instrumen score.
+     */
+    public function getNilaiPenugasanJabatanNondefinitif(string $pegawaiId, string $subindikatorId): ?float
+    {
+        return $this->getLatestAcceptedPengajuanScore($pegawaiId, $subindikatorId);
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // Pengembangan Kompetensi – external API (rw-kursus) + DB cache
     // ─────────────────────────────────────────────────────────────
 
@@ -1380,6 +1429,8 @@ class PenilaianSyncService
         $pengembanganKompetensiIds = [];
         $diklatIds      = [];
         $kesesuaianPendidikanIds = [];
+        $penugasanTimKerjaIds = [];
+        $penugasanNondefinitifIds = [];
 
         foreach ($allSub as $id => $s) {
             $name = $s->subindikator ?? '';
@@ -1450,6 +1501,16 @@ class PenilaianSyncService
                 $kesesuaianPendidikanIds[] = $id;
                 continue;
             }
+
+            if (stripos($name, 'Penugasan dalam Tim Kerja') !== false) {
+                $penugasanTimKerjaIds[] = $id;
+                continue;
+            }
+
+            if (stripos($name, 'Penugasan Dalam Jabatan Nondefinitif') !== false) {
+                $penugasanNondefinitifIds[] = $id;
+                continue;
+            }
         }
 
         // Convert to hash sets for O(1) lookup
@@ -1462,6 +1523,8 @@ class PenilaianSyncService
         $pengembanganKompetensiSet = array_flip($pengembanganKompetensiIds);
         $diklatSet                 = array_flip($diklatIds);
         $kesesuaianPendidikanSet   = array_flip($kesesuaianPendidikanIds);
+        $penugasanTimKerjaSet      = array_flip($penugasanTimKerjaIds);
+        $penugasanNondefinitifSet   = array_flip($penugasanNondefinitifIds);
 
         $query = Pegawai::with('penilaian');
         if ($filterNips !== null) {
@@ -1522,6 +1585,8 @@ class PenilaianSyncService
                     $riwayatSertifikasi = $this->fetchRiwayatSertifikasi($nipStr, $pegawai);
                 }
 
+                $pegawaiId = (string) ($pegawai->id ?? '');
+
                 foreach ($allSub as $subId => $sub) {
                     $bobot              = (float) ($sub->bobot ?? 0);
                     $usesStandarMsk     = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
@@ -1555,6 +1620,12 @@ class PenilaianSyncService
                     } elseif (isset($kesesuaianPendidikanSet[$subId])) {
                         // Kesesuaian Pendidikan dengan Jabatan Target: default value 50
                         $nilai = 50.0;
+                    } elseif (isset($penugasanTimKerjaSet[$subId])) {
+                        $nilai = $this->getNilaiPenugasanTimKerja($pegawaiId, $subId)
+                            ?? $oldNilai($subId);
+                    } elseif (isset($penugasanNondefinitifSet[$subId])) {
+                        $nilai = $this->getNilaiPenugasanJabatanNondefinitif($pegawaiId, $subId)
+                            ?? $oldNilai($subId);
                     } else {
                         $nilai = $oldNilai($subId);
                     }

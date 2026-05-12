@@ -66,8 +66,8 @@ class InstrumenSeeder extends Seeder
             ['parent' => 'Kesesuaian Pendidikan dengan Jabatan Target', 'instrumen' => 'a. Memiliki riwayat pendidikan dalam bidang ilmu yang sesuai dengan jabatan target', 'skor' => 100.00],
             ['parent' => 'Kesesuaian Pendidikan dengan Jabatan Target', 'instrumen' => 'b. Tidak Memiliki riwayat pendidikan dalam bidang ilmu yang sesuai dengan jabatan target', 'skor' => 50.00],
             // Penugasan dalam Tim Kerja
-            ['parent' => 'Penugasan dalam Tim Kerja', 'instrumen' => 'a. Ketua tim kerja lingkup lintas instansi dalam 2 tahun terakhir', 'skor' => 100.00],
-            ['parent' => 'Penugasan dalam Tim Kerja', 'instrumen' => 'b. Ketua tim kerja lingkup internal instansi dalam 2 tahun terakhir', 'skor' => 75.00],
+            ['parent' => 'Penugasan dalam Tim Kerja', 'instrumen' => 'a. Pemilik/Penilai/Ketua tim kerja lingkup lintas instansi dalam 2 tahun terakhir', 'skor' => 100.00],
+            ['parent' => 'Penugasan dalam Tim Kerja', 'instrumen' => 'b. Pemilik/Penilai/Ketua tim kerja lingkup internal instansi dalam 2 tahun terakhir', 'skor' => 75.00],
             ['parent' => 'Penugasan dalam Tim Kerja', 'instrumen' => 'c. Anggota tim kerja lingkup lintas instansi dalam 2 tahun terakhir', 'skor' => 50.00],
             ['parent' => 'Penugasan dalam Tim Kerja', 'instrumen' => 'd. Anggota tim kerja lingkup internal instansi dalam 2 tahun terakhir', 'skor' => 25.00],
             ['parent' => 'Penugasan dalam Tim Kerja', 'instrumen' => 'e. Tidak mempunyai penugasan dalam tim kerja', 'skor' => 0.00],
