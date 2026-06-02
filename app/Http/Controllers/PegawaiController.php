@@ -103,6 +103,35 @@ class PegawaiController extends Controller
                 $golongan = $request->get('golongan');
                 $query->whereRaw('lower(golongan) = ?', [strtolower($golongan)]);
             }
+            if ($request->filled('sudah_asesmen')) {
+                $sudah = $request->boolean('sudah_asesmen');
+
+                $indikatorAsesmenIds = \App\Models\Subindikator::query()
+                    ->join('indikators', 'subindikators.indikator_id', '=', 'indikators.id')
+                    ->where(function ($q) {
+                        $q->where('indikators.indikator', 'Penilaian Kompetensi Manajerial dan Sosial Kultural')
+                          ->orWhere('indikators.indikator', 'Penilaian Potensi Talenta');
+                    })
+                    ->pluck('subindikators.id')
+                    ->toArray();
+
+                if (!empty($indikatorAsesmenIds)) {
+                    $clauses = [];
+                    $bindings = [];
+                    foreach ($indikatorAsesmenIds as $id) {
+                        $clauses[] = "(COALESCE((penilaians.penilaian -> ? ->> 'nilai'), '0')::numeric > 0 OR COALESCE((penilaians.penilaian -> ? ->> 'hasil'), '0')::numeric > 0)";
+                        $bindings[] = $id;
+                        $bindings[] = $id;
+                    }
+
+                    $sql = implode(' OR ', $clauses);
+                    if ($sudah) {
+                        $query->whereRaw("EXISTS (SELECT 1 FROM penilaians WHERE penilaians.pegawai_id = pegawai.id AND (" . $sql . "))", $bindings);
+                    } else {
+                        $query->whereRaw("NOT EXISTS (SELECT 1 FROM penilaians WHERE penilaians.pegawai_id = pegawai.id AND (" . $sql . "))", $bindings);
+                    }
+                }
+            }
 
             // Order first by peta_jabatan.kelas_jabatan interpreted as number (desc, NULLS LAST), then by name
             // Use regex to ensure only pure digits are cast to avoid errors on non-numeric values.
