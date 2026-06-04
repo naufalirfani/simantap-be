@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Support\DecryptsEncryptedToken;
+use App\Services\DecryptsEncryptedToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Carbon\Carbon;

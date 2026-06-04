@@ -1,22 +1,24 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CmbApiController;
+use App\Http\Controllers\DaftarKotakController;
 use App\Http\Controllers\IndikatorController;
 use App\Http\Controllers\InstrumenController;
+use App\Http\Controllers\LampiranAsesmenController;
 use App\Http\Controllers\PegawaiController;
+use App\Http\Controllers\PengajuanPenilaianController;
 use App\Http\Controllers\PengembanganStatistikController;
-use App\Http\Controllers\PetaJabatanController;
-use App\Http\Controllers\StatistikController;
-use App\Http\Controllers\SubIndikatorController;
-use App\Http\Controllers\DaftarKotakController;
 use App\Http\Controllers\PenilaianController;
+use App\Http\Controllers\PetaJabatanController;
 use App\Http\Controllers\RiwayatAsesmenController;
 use App\Http\Controllers\StandarKompetensiMskController;
+use App\Http\Controllers\StatistikController;
+use App\Http\Controllers\SubIndikatorController;
+
 use App\Http\Controllers\SyaratSuksesiController;
-use App\Http\Controllers\LampiranAsesmenController;
 use Illuminate\Support\Facades\Route;
 
-use App\Http\Controllers\PengajuanPenilaianController;
 
 // Admin Authentication Routes (no middleware)
 Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/login', [AuthController::class, 'login']);
@@ -89,5 +91,9 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     Route::post('pengajuan-penilaians/{id}/approve', [PengajuanPenilaianController::class, 'approve']);
     Route::post('pengajuan-penilaians/{id}/reject', [PengajuanPenilaianController::class, 'reject']);
     Route::apiResource('pengajuan-penilaians', PengajuanPenilaianController::class);
-});
 
+    // CMB API forwarding routes (SSO, Pegawai, Calendar)s
+    Route::get('sso/verify/{token}', [CmbApiController::class, 'verifySsoToken']);
+    Route::get('pegawai', [CmbApiController::class, 'getPegawai']);
+    Route::get('pegawai/{nip}', [CmbApiController::class, 'getPegawaiByNip']);
+});
