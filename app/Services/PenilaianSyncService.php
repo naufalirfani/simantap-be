@@ -92,9 +92,9 @@ class PenilaianSyncService
                 $level = 'S3';
             } elseif (preg_match('/s2|strata2|strataii/', $normEdu)) {
                 $level = 'S2';
-            } elseif (preg_match('/s1|d4|div|d\.4|strata1|stratai/', $normEdu)) {
+            } elseif (preg_match('/s1|d4|div|d\.4|strata1|diplomaiv|stratai/', $normEdu)) {
                 $level = 'S1/D4';
-            } elseif (preg_match('/d3|diii/', $normEdu)) {
+            } elseif (preg_match('/d3|diii|d\.3|diplomaiii/', $normEdu)) {
                 $level = 'D3';
             } elseif (preg_match('/slta|sma|smk|ma|sekolahlanjutantingkatatas/', $normEdu)) {
                 $level = 'SLTA';
@@ -113,15 +113,15 @@ class PenilaianSyncService
             $skor = (float) $ins->skor;
             $t    = preg_replace('/[\.\-\s]+/', '', $text);
 
-            if (stripos($t, 's3') !== false || stripos($text, 'strata 3') !== false) {
+            if (stripos($t, 's3') !== false || stripos($text, 'strata3') !== false) {
                 $mapping['S3'] = $skor;
-            } elseif (stripos($t, 's2') !== false || stripos($text, 'strata 2') !== false) {
+            } elseif (stripos($t, 's2') !== false || stripos($text, 'strata2') !== false) {
                 $mapping['S2'] = $skor;
-            } elseif (stripos($t, 's1') !== false || stripos($t, 'd4') !== false || stripos($text, 'strata 1') !== false) {
+            } elseif (stripos($t, 's1') !== false || stripos($t, 'd4') !== false || stripos($text, 'strata1') !== false || stripos($text, 'diplomaiv') !== false) {
                 $mapping['S1/D4'] = $skor;
-            } elseif (stripos($t, 'd3') !== false || stripos($text, 'diploma iii') !== false) {
+            } elseif (stripos($t, 'd3') !== false || stripos($text, 'diplomaiii') !== false) {
                 $mapping['D3'] = $skor;
-            } elseif (stripos($t, 'slta') !== false || stripos($text, 'sekolah lanjutan') !== false || stripos($text, 'sma') !== false) {
+            } elseif (stripos($t, 'slta') !== false || stripos($text, 'sekolahlanjutan') !== false || stripos($text, 'sma') !== false) {
                 $mapping['SLTA'] = $skor;
             }
         }
