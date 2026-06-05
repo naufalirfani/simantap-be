@@ -2,7 +2,7 @@
 
 namespace App\Http\Middleware;
 
-use App\Services\DecryptsEncryptedToken;
+use App\Support\DecryptsEncryptedToken;
 use Closure;
 use Illuminate\Http\Request;
 

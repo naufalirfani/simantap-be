@@ -34,10 +34,5 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-    
-    'cmb' => [
-        'api_url' => env('CMB_API_URL'),
-        'api_token' => env('CMB_API_TOKEN'),
-    ],
 
 ];
