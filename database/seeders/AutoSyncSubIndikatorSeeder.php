@@ -15,6 +15,8 @@ class AutoSyncSubIndikatorSeeder extends Seeder
         'Keragaman Riwayat Jabatan',
         'Pengembangan Kompetensi',
         'Diklat Kepemimpinan/Keahlian/Penjenjangan',
+        'Penugasan dalam Tim Kerja',
+        'Penugasan Dalam Jabatan Nondefinitif'
     ];
 
     public function run(): void
