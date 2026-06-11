@@ -15,8 +15,8 @@ class SubIndikatorSeeder extends Seeder
     public function run(): void
     {
         // Get Indikator IDs
-        $penilaianSpesifik = Indikator::where('indikator', 'Penilaian Utama')->first();
-        $penilaianGenerik = Indikator::where('indikator', 'Penilaian Penguat')->first();
+        $penilaianSpesifik = Indikator::where('indikator', 'Kinerja Utama')->first();
+        $penilaianGenerik = Indikator::where('indikator', 'Kinerja Penguat')->first();
         $penilaianPotensiTalenta = Indikator::where('indikator', 'Penilaian Potensi Talenta')->first();
         $rekamJejakJabatan = Indikator::where('indikator', 'Rekam Jejak Jabatan')->first();
         $kualifikasi = Indikator::where('indikator', 'Kualifikasi')->first();
@@ -25,14 +25,14 @@ class SubIndikatorSeeder extends Seeder
         $umum = Indikator::where('indikator', 'Umum')->first();
 
         $subIndikators = [
-            // Penilaian Utama
+            // Kinerja Utama
             [
                 'subindikator' => 'Penilaian Kerja (SKP)',
                 'bobot' => 60.00,
                 'isactive' => true,
                 'indikator_id' => $penilaianSpesifik->id,
             ],
-            // Penilaian Penguat
+            // Kinerja Penguat
             [
                 'subindikator' => 'Tugas Tambahan',
                 'isactive' => true,
