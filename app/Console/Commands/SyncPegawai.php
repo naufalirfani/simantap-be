@@ -7,6 +7,7 @@ use App\Models\Pegawai;
 use App\Models\PetaJabatan;
 use App\Models\JenisJabatan;
 use App\Models\Penilaian;
+use App\Services\TokenEncryptionService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\Log;
 
 class SyncPegawai extends Command
 {
+    private ?string $apiToken = null;
+
     /**
      * The name and signature of the console command.
      *
@@ -42,6 +45,7 @@ class SyncPegawai extends Command
         try {
             $apiBaseUrl = rtrim(env('CMB_API_URL', 'https://cmb.tail91813a.ts.net/api'), '/');
             $apiToken = env('CMB_API_TOKEN');
+            $this->apiToken = $apiToken;
 
             if (!$apiToken) {
                 $this->error('CMB_API_TOKEN not configured in .env');
@@ -62,10 +66,10 @@ class SyncPegawai extends Command
             do {
                 $this->info("Fetching page {$currentPage}...");
                 Log::info("Fetching page {$currentPage}");
-                $response = Http::withHeaders([
-                    'X-API-TOKEN' => $apiToken,
-                    'Accept' => 'application/json',
-                ])
+                $response = Http::withHeaders(array_merge(
+                    $this->buildHeaders(),
+                    ['Accept' => 'application/json']
+                ))
                     ->timeout(180)
                     ->get($apiUrl, [
                         'include_avatar' => 'true',
@@ -124,6 +128,22 @@ class SyncPegawai extends Command
             ]);
             return Command::FAILURE;
         }
+    }
+
+    private function buildHeaders(): array
+    {
+        $headers = [];
+
+        if (!empty($this->apiToken)) {
+            $encryptedToken = TokenEncryptionService::encryptTokenForHeader(
+                $this->apiToken,
+                ['salt' => $this->apiToken]
+            );
+            $headers['X-Api-Token'] = $encryptedToken;
+            $headers['origin'] = config('app.url', 'http://localhost');
+        }
+
+        return $headers;
     }
 
     /**
