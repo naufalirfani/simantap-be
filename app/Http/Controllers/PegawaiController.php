@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Pegawai;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 
 class PegawaiController extends Controller
 {
@@ -110,7 +111,7 @@ class PegawaiController extends Controller
                     ->join('indikators', 'subindikators.indikator_id', '=', 'indikators.id')
                     ->where(function ($q) {
                         $q->where('indikators.indikator', 'Penilaian Kompetensi Manajerial dan Sosial Kultural')
-                          ->orWhere('indikators.indikator', 'Penilaian Potensi Talenta');
+                            ->orWhere('indikators.indikator', 'Penilaian Potensi Talenta');
                     })
                     ->pluck('subindikators.id')
                     ->toArray();
@@ -437,7 +438,18 @@ class PegawaiController extends Controller
             if ($retensi) {
                 // Retensi: ambil jabatan yang setara (baik struktural maupun fungsional)
                 if ($mappedType !== null) {
+
                     $typesToUse = [$mappedType];
+
+                    if (strpos(strtolower($peta->nama_jabatan), 'deputi') !== false) {
+                        $idx = array_search($mappedType, $allowedTypes, true);
+                        if ($idx !== false && $idx < count($allowedTypes) - 1) {
+                            // Ambil 1 tingkat di bawah
+                            $oneLevelBelow = $allowedTypes[$idx + 1];
+                            $typesToUse[] = $oneLevelBelow;
+                        }
+                    }
+
                     // Tambahkan jabatan fungsional yang setara
                     if (array_key_exists($mappedType, $equivalensi)) {
                         $typesToUse = array_merge($typesToUse, $equivalensi[$mappedType]);
@@ -450,6 +462,11 @@ class PegawaiController extends Controller
                     if ($idx !== false && $idx < count($allowedTypes) - 1) {
                         // Ambil 1 tingkat di bawah
                         $oneLevelBelow = $allowedTypes[$idx + 1];
+
+                        if (strpos(strtolower($peta->nama_jabatan), 'deputi') !== false) {
+                            $oneLevelBelow = $allowedTypes[$idx + 2];
+                        }
+
                         $typesToUse = [$oneLevelBelow];
                         // Tambahkan jabatan fungsional yang setara dengan tingkat di bawah
                         if (array_key_exists($oneLevelBelow, $equivalensi)) {
@@ -580,8 +597,8 @@ class PegawaiController extends Controller
                     foreach ($penObj as $subId => $val) {
                         if (isset($subNamaMap[$subId]) && strpos($subNamaMap[$subId], 'nilai kompetensi teknis') !== false) {
                             $hasil = null;
-                            if (is_array($val) && array_key_exists('hasil', $val)) {
-                                $hasil = (float) $val['hasil'];
+                            if (is_array($val) && array_key_exists('nilai', $val)) {
+                                $hasil = (float) $val['nilai'];
                             } elseif (is_numeric($val)) {
                                 $hasil = (float) $val;
                             }

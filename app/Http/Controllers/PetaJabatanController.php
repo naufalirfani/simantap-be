@@ -22,7 +22,7 @@ class PetaJabatanController extends Controller
             // Read jabatan_kosong filter flag (default false) and detect if param present
             $jabatanKosong = filter_var($request->get('jabatan_kosong', 'false'), FILTER_VALIDATE_BOOLEAN);
             $hasJabatanKosongParam = $request->has('jabatan_kosong');
-            $query = PetaJabatan::orderBy('order_index')->orderBy('level');
+            $query = PetaJabatan::orderBy('level')->orderBy('order_index');
             $perPage = max(1, (int) $request->get('per_page', 10));
             $page = max(1, (int) $request->get('page', 1));
 
@@ -113,6 +113,10 @@ class PetaJabatanController extends Controller
                     $retirementDate = $dob->copy()->addYears($retirementAge);
                     // vacant if retirement date is within next 1 year
                     $isVacant = $retirementDate->lte(Carbon::now()->addYear());
+
+                    if ($jenis === 'ESELON I / JPT MADYA') {
+                        return true; // always include ESELON I regardless of vacancy status
+                    }
 
                     return $jabatanKosong ? $isVacant : !$isVacant;
                 }));
