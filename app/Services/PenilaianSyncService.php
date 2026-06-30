@@ -736,7 +736,7 @@ class PenilaianSyncService
 
         $pengajuan = $query->first();
         if (!$pengajuan || !$pengajuan->instrumen) {
-            return null;
+            return 0.0;
         }
 
         return (float) $pengajuan->instrumen->skor;
