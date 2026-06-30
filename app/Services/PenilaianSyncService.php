@@ -926,6 +926,45 @@ class PenilaianSyncService
         return $merged;
     }
 
+    private function isDiklatFungsionalRecord(array $record): bool
+    {
+        return strtoupper(trim((string) ($record['jenisKursusSertifikat'] ?? ''))) === 'DIKLAT FUNGSIONAL';
+    }
+
+    private function persistRiwayatPengembanganKompetensiCache(Pegawai $pegawai, array $records): array
+    {
+        $existingDiklatRecords = is_array($pegawai->riwayat_diklat)
+            ? $pegawai->riwayat_diklat
+            : [];
+
+        $diklatFungsionalRecords = [];
+        $pengembanganRecords = [];
+
+        foreach ($records as $record) {
+            if (!is_array($record)) {
+                continue;
+            }
+
+            if ($this->isDiklatFungsionalRecord($record)) {
+                $diklatFungsionalRecords[] = $record;
+                continue;
+            }
+
+            $pengembanganRecords[] = $record;
+        }
+
+        $pegawai->riwayat_pengembangan_kompetensi = $pengembanganRecords;
+        if (!empty($diklatFungsionalRecords)) {
+            $pegawai->riwayat_diklat = $this->mergeRiwayatPengembanganKompetensiRecords(
+                $existingDiklatRecords,
+                $diklatFungsionalRecords
+            );
+        }
+        $pegawai->saveQuietly();
+
+        return $pengembanganRecords;
+    }
+
     /**
      * Fetch riwayat kursus / pengembangan kompetensi for a single NIP.
      *
@@ -978,9 +1017,14 @@ class PenilaianSyncService
         $seminarRecords = $this->fetchRiwayatPengembanganKompetensiSeminar($nip);
 
         if ($kursusRecords === null && $seminarRecords === null) {
-            return is_array($pegawai->riwayat_pengembangan_kompetensi)
-                ? $pegawai->riwayat_pengembangan_kompetensi
-                : null;
+            if (!is_array($pegawai->riwayat_pengembangan_kompetensi)) {
+                return null;
+            }
+
+            return $this->persistRiwayatPengembanganKompetensiCache(
+                $pegawai,
+                $pegawai->riwayat_pengembangan_kompetensi
+            );
         }
 
         $cachedRecords = is_array($pegawai->riwayat_pengembangan_kompetensi)
@@ -998,10 +1042,7 @@ class PenilaianSyncService
 
         $mergedRecords = $this->mergeRiwayatPengembanganKompetensiRecords(...$recordSets);
 
-        $pegawai->riwayat_pengembangan_kompetensi = $mergedRecords;
-        $pegawai->saveQuietly();
-
-        return $mergedRecords;
+        return $this->persistRiwayatPengembanganKompetensiCache($pegawai, $mergedRecords);
     }
 
     /**
@@ -1186,6 +1227,11 @@ class PenilaianSyncService
 
             $records = $deduplicate($records);
 
+            $existingRecords = is_array($pegawai->riwayat_diklat)
+                ? $pegawai->riwayat_diklat
+                : [];
+            $records = $this->mergeRiwayatPengembanganKompetensiRecords($existingRecords, $records);
+
             // Persist to DB cache
             $pegawai->riwayat_diklat = $records;
             $pegawai->saveQuietly();
@@ -1306,8 +1352,16 @@ class PenilaianSyncService
             }
         };
 
-        // Count all diklat struktural records (no year restriction)
-        $diklatCount = is_array($riwayatDiklat) ? count($riwayatDiklat) : 0;
+        // Count only non-fungsional diklat records (no year restriction)
+        $diklatCount = 0;
+        if (is_array($riwayatDiklat)) {
+            foreach ($riwayatDiklat as $record) {
+                if (!is_array($record) || $this->isDiklatFungsionalRecord($record)) {
+                    continue;
+                }
+                $diklatCount++;
+            }
+        }
 
         // Count sertifikasi records within the last 3 years
         $threeYearsAgo    = now()->subYears(3)->startOfDay();
@@ -1323,26 +1377,50 @@ class PenilaianSyncService
             }
         }
 
-        // Count riwayat kursus (Pengembangan Kompetensi) records where
-        // jenisKursusSertifikat = "DIKLAT FUNGSIONAL" (all records, no year filter)
+        // Count riwayat kursus records where jenisKursusSertifikat = "DIKLAT FUNGSIONAL"
+        // (all records, no year filter)
         $diklatFungsionalCount = 0;
+        $riwayatFungsional = [];
+        $seenFungsional = [];
+
+        $appendFungsionalRecord = static function (array $record) use (&$riwayatFungsional, &$seenFungsional): void {
+            if (empty($record)) {
+                return;
+            }
+
+            $key = md5((string) $record['__fungsional_key']);
+            if (isset($seenFungsional[$key])) {
+                return;
+            }
+
+            $seenFungsional[$key] = true;
+            $riwayatFungsional[] = $record;
+        };
+
         if (is_array($riwayatKursus)) {
-            $seenKursus = [];
             foreach ($riwayatKursus as $record) {
-                $jenis = strtoupper(trim((string) ($record['jenisKursusSertifikat'] ?? '')));
-                if ($jenis !== 'DIKLAT FUNGSIONAL') {
+                if (!is_array($record) || !$this->isDiklatFungsionalRecord($record)) {
                     continue;
                 }
-                // Deduplicate by noSertipikat (same as Pengembangan Kompetensi logic)
-                $noSert = trim((string) ($record['noSertipikat'] ?? ''));
-                if ($noSert !== '' && $noSert !== '-') {
-                    if (isset($seenKursus[$noSert])) {
-                        continue;
-                    }
-                    $seenKursus[$noSert] = true;
-                }
-                $diklatFungsionalCount++;
+
+                $record['__fungsional_key'] = $this->getRiwayatPengembanganKompetensiRecordKey($record);
+                $appendFungsionalRecord($record);
             }
+        }
+
+        if (is_array($riwayatDiklat)) {
+            foreach ($riwayatFungsional as $record) {
+                if (!is_array($record) || !$this->isDiklatFungsionalRecord($record)) {
+                    continue;
+                }
+
+                $record['__fungsional_key'] = $this->getRiwayatPengembanganKompetensiRecordKey($record);
+                $appendFungsionalRecord($record);
+            }
+        }
+
+        foreach ($riwayatFungsional as $record) {
+            $diklatFungsionalCount++;
         }
 
         $totalCount = $diklatCount + $sertifikasiCount + $diklatFungsionalCount;
@@ -1618,8 +1696,8 @@ class PenilaianSyncService
                         $nilai = $this->getNilaiDiklatKepemimpinan($riwayatDiklat, $riwayatSertifikasi, $instrBySub[$subId] ?? collect(), $riwayatPengembanganKompetensi)
                             ?? $oldNilai($subId);
                     } elseif (isset($kesesuaianPendidikanSet[$subId])) {
-                        // Kesesuaian Pendidikan dengan Jabatan Target: default value 50
-                        $nilai = 50.0;
+                        // Kesesuaian Pendidikan dengan Jabatan Target: default value 100
+                        $nilai = 100.0;
                     } elseif (isset($penugasanTimKerjaSet[$subId])) {
                         $nilai = $this->getNilaiPenugasanTimKerja($pegawaiId, $subId)
                             ?? $oldNilai($subId);
