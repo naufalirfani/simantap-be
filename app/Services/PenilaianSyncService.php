@@ -175,7 +175,7 @@ class PenilaianSyncService
 
         $resolveKuadran = static function (?array $records): ?string {
             if (empty($records)) return null;
-            usort($records, fn ($a, $b) => (int) ($b['tahun'] ?? 0) - (int) ($a['tahun'] ?? 0));
+            usort($records, fn($a, $b) => (int) ($b['tahun'] ?? 0) - (int) ($a['tahun'] ?? 0));
             $latest = $records[0];
             return !empty($latest['kuadranKinerja']) ? (string) $latest['kuadranKinerja'] : null;
         };
@@ -542,8 +542,14 @@ class PenilaianSyncService
         $extractFungsionalJenjang = static function (string $nama): ?string {
             $lower = mb_strtolower($nama);
             $keywords = [
-                'ahli utama', 'ahli madya', 'ahli muda', 'ahli pertama',
-                'penyelia', 'mahir', 'terampil', 'pemula',
+                'ahli utama',
+                'ahli madya',
+                'ahli muda',
+                'ahli pertama',
+                'penyelia',
+                'mahir',
+                'terampil',
+                'pemula',
             ];
             foreach ($keywords as $kw) {
                 if (str_contains($lower, $kw)) {
@@ -564,9 +570,53 @@ class PenilaianSyncService
                 $earliestTmt = $parseDate($latest['tmtJabatan'] ?? null);
             } else {
                 foreach ($riwayatJabatan as $record) {
-                    if ((string) ($record['jenisJabatan'] ?? '') !== '1') continue;
-                    if (strtolower(trim((string) ($record['eselon'] ?? ''))) !== strtolower($eselon)) continue;
+                    if ((string) ($record['jenisJabatan'] ?? '') !== '1') {
+                        continue;
+                    }
+
+                    $recordEselon = strtolower(trim((string) ($record['eselon'] ?? '')));
+                    $targetEselon = strtolower(trim($eselon));
+                    $namaJabatan = strtolower(trim((string) ($record['namaJabatan'] ?? '')));
+
+                    $isSpecialMatch = false;
+
+                    if (
+                        $targetEselon === 'ii.a' &&
+                        (
+                            str_contains($namaJabatan, 'kepala biro') ||
+                            str_contains($namaJabatan, 'kepala pusat')
+                        )
+                    ) {
+                        $isSpecialMatch = true;
+                    }
+
+                    if (
+                        $targetEselon === 'iii.a' &&
+                        (
+                            str_contains($namaJabatan, 'kepala bagian') ||
+                            str_contains($namaJabatan, 'kepala bidang')
+                        )
+                    ) {
+                        $isSpecialMatch = true;
+                    }
+
+                    if (
+                        $targetEselon === 'iv.a' &&
+                        (
+                            str_contains($namaJabatan, 'kepala subbidang') ||
+                            str_contains($namaJabatan, 'kepala subbagian')
+                        )
+                    ) {
+                        $isSpecialMatch = true;
+                    }
+
+                    // Jika eselon tidak cocok dan bukan jabatan khusus, skip
+                    if ($recordEselon !== $targetEselon && !$isSpecialMatch) {
+                        continue;
+                    }
+
                     $tmt = $parseDate($record['tmtJabatan'] ?? null);
+
                     if ($tmt && ($earliestTmt === null || $tmt->lt($earliestTmt))) {
                         $earliestTmt = $tmt;
                     }
@@ -636,7 +686,7 @@ class PenilaianSyncService
         }
 
         // Sort tiers descending by min so the highest qualifying tier wins
-        usort($tiers, fn ($a, $b) => $b['min'] - $a['min']);
+        usort($tiers, fn($a, $b) => $b['min'] - $a['min']);
 
         foreach ($tiers as $tier) {
             if ($yearsInPosition >= $tier['min'] && $yearsInPosition <= $tier['max']) {
@@ -675,12 +725,12 @@ class PenilaianSyncService
         }
 
         $satuanKerjas = array_unique(array_filter(array_map(
-            fn ($r) => strtolower(trim((string) ($r['satuanKerjaNama'] ?? ''))),
+            fn($r) => strtolower(trim((string) ($r['satuanKerjaNama'] ?? ''))),
             $riwayatJabatan
         )));
 
         $unorNamas = array_unique(array_filter(array_map(
-            fn ($r) => strtolower(trim((string) ($r['unorNama'] ?? ''))),
+            fn($r) => strtolower(trim((string) ($r['unorNama'] ?? ''))),
             $riwayatJabatan
         )));
 
@@ -702,7 +752,7 @@ class PenilaianSyncService
             $matched = match ($category) {
                 'instansi'    => str_contains($core, 'instansi'),
                 'unit kerja'  => str_contains($core, 'unit kerja') && !str_contains($core, 'instansi') && !str_contains($core, '1 unit'),
-                '1 unit kerja'=> str_contains($core, '1 unit') || (str_contains($core, 'unit kerja') && str_contains($core, 'hanya')),
+                '1 unit kerja' => str_contains($core, '1 unit') || (str_contains($core, 'unit kerja') && str_contains($core, 'hanya')),
                 default       => false,
             };
 
@@ -841,7 +891,7 @@ class PenilaianSyncService
                         'dok_id'  => (string) ($record['id'] ?? ''),
                         'object'  => $sertifikatUrl,
                         'dok_uri' => $sertifikatUrl,
-                        'dok_nama'=> 'Dok Sertifikat Seminar',
+                        'dok_nama' => 'Dok Sertifikat Seminar',
                     ];
                 }
 
@@ -1155,7 +1205,7 @@ class PenilaianSyncService
 
         // Sort descending by min so the highest-threshold tier is checked first.
         // This ensures "8 atau lebih" wins over "6-8" when count == 8.
-        usort($tiers, fn ($a, $b) => $b['min'] - $a['min']);
+        usort($tiers, fn($a, $b) => $b['min'] - $a['min']);
 
         foreach ($tiers as $tier) {
             if ($count >= $tier['min'] && $count <= $tier['max']) {
@@ -1462,7 +1512,7 @@ class PenilaianSyncService
         }
 
         // Sort descending by min so highest-threshold tier is checked first
-        usort($tiers, fn ($a, $b) => $b['min'] - $a['min']);
+        usort($tiers, fn($a, $b) => $b['min'] - $a['min']);
 
         foreach ($tiers as $tier) {
             if ($totalCount >= $tier['min'] && $totalCount <= $tier['max']) {
