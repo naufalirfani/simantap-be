@@ -17,6 +17,7 @@ use App\Http\Controllers\LampiranAsesmenController;
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\PengajuanPenilaianController;
+use App\Http\Controllers\SettingBobot360Controller;
 
 // Admin Authentication Routes (no middleware)
 Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/login', [AuthController::class, 'login']);
@@ -89,5 +90,9 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     Route::post('pengajuan-penilaians/{id}/approve', [PengajuanPenilaianController::class, 'approve']);
     Route::post('pengajuan-penilaians/{id}/reject', [PengajuanPenilaianController::class, 'reject']);
     Route::apiResource('pengajuan-penilaians', PengajuanPenilaianController::class);
+
+    // Setting Bobot 360 Routes
+    Route::get('settings/bobot-360', [SettingBobot360Controller::class, 'index']);
+    Route::post('settings/bobot-360', [SettingBobot360Controller::class, 'store']);
 });
 

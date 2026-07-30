@@ -501,31 +501,11 @@ class PenilaianSyncService
             return null;
         }
 
-        /** Parse "DD-MM-YYYY" → Carbon or null */
-        $parseDate = static function (?string $d): ?\Carbon\Carbon {
-            if (!$d) return null;
-            try {
-                return \Carbon\Carbon::createFromFormat('d-m-Y', trim($d))->startOfDay();
-            } catch (\Exception $e) {
-                return null;
-            }
-        };
-
-        /** Parse "DD-MM-YYYY" createdAt → Carbon or null */
-        $parseCreatedAt = static function (?string $d): ?\Carbon\Carbon {
-            if (!$d) return null;
-            try {
-                return \Carbon\Carbon::createFromFormat('d-m-Y', trim($d))->startOfDay();
-            } catch (\Exception $e) {
-                return null;
-            }
-        };
-
-        // Find the latest record by createdAt
+        // Find the latest record by createdAt (with tmtJabatan fallback)
         $sorted = $riwayatJabatan;
-        usort($sorted, function ($a, $b) use ($parseCreatedAt) {
-            $ca = $parseCreatedAt($a['createdAt'] ?? null);
-            $cb = $parseCreatedAt($b['createdAt'] ?? null);
+        usort($sorted, function ($a, $b) {
+            $ca = $this->parseRiwayatDate($a['createdAt'] ?? null) ?? $this->parseRiwayatDate($a['tmtJabatan'] ?? null);
+            $cb = $this->parseRiwayatDate($b['createdAt'] ?? null) ?? $this->parseRiwayatDate($b['tmtJabatan'] ?? null);
             if (!$ca && !$cb) return 0;
             if (!$ca) return 1;
             if (!$cb) return -1;
@@ -567,7 +547,7 @@ class PenilaianSyncService
             $eselon = trim((string) ($latest['eselon'] ?? ''));
             if ($eselon === '') {
                 // fallback: use only the latest record's tmtJabatan
-                $earliestTmt = $parseDate($latest['tmtJabatan'] ?? null);
+                $earliestTmt = $this->parseRiwayatDate($latest['tmtJabatan'] ?? null);
             } else {
                 foreach ($riwayatJabatan as $record) {
                     if ((string) ($record['jenisJabatan'] ?? '') !== '1') {
@@ -615,7 +595,7 @@ class PenilaianSyncService
                         continue;
                     }
 
-                    $tmt = $parseDate($record['tmtJabatan'] ?? null);
+                    $tmt = $this->parseRiwayatDate($record['tmtJabatan'] ?? null);
 
                     if ($tmt && ($earliestTmt === null || $tmt->lt($earliestTmt))) {
                         $earliestTmt = $tmt;
@@ -626,13 +606,13 @@ class PenilaianSyncService
             // Fungsional: group by jenjang keyword
             $jenjang = $extractFungsionalJenjang((string) ($latest['jabatanFungsionalNama'] ?? ''));
             if ($jenjang === null) {
-                $earliestTmt = $parseDate($latest['tmtJabatan'] ?? null);
+                $earliestTmt = $this->parseRiwayatDate($latest['tmtJabatan'] ?? null);
             } else {
                 foreach ($riwayatJabatan as $record) {
                     if ((string) ($record['jenisJabatan'] ?? '') !== '2') continue;
                     $recordJenjang = $extractFungsionalJenjang((string) ($record['jabatanFungsionalNama'] ?? ''));
                     if ($recordJenjang !== $jenjang) continue;
-                    $tmt = $parseDate($record['tmtJabatan'] ?? null);
+                    $tmt = $this->parseRiwayatDate($record['tmtJabatan'] ?? null);
                     if ($tmt && ($earliestTmt === null || $tmt->lt($earliestTmt))) {
                         $earliestTmt = $tmt;
                     }
@@ -642,14 +622,14 @@ class PenilaianSyncService
             // Pimpinan Tinggi: group all jenisJabatan=4 records
             foreach ($riwayatJabatan as $record) {
                 if ((string) ($record['jenisJabatan'] ?? '') !== '4') continue;
-                $tmt = $parseDate($record['tmtJabatan'] ?? null);
+                $tmt = $this->parseRiwayatDate($record['tmtJabatan'] ?? null);
                 if ($tmt && ($earliestTmt === null || $tmt->lt($earliestTmt))) {
                     $earliestTmt = $tmt;
                 }
             }
         } else {
             // Unknown jenis: use latest record's own tmtJabatan
-            $earliestTmt = $parseDate($latest['tmtJabatan'] ?? null);
+            $earliestTmt = $this->parseRiwayatDate($latest['tmtJabatan'] ?? null);
         }
 
         if ($earliestTmt === null) {
@@ -657,8 +637,9 @@ class PenilaianSyncService
             return null;
         }
 
-        // Cast to int to get whole completed years (Carbon 3+ may return a float)
-        $yearsInPosition = (int) $earliestTmt->diffInYears(now());
+        // Calculate whole completed years considering full date (day, month, year) against current date
+        $today = now()->startOfDay();
+        $yearsInPosition = (int) $earliestTmt->diffInYears($today);
 
         // Match against instrumens by checking year thresholds mentioned in the text
         // e.g. "5 tahun keatas", "3 s.d 4 tahun", "0 s.d 2 tahun"
@@ -859,10 +840,13 @@ class PenilaianSyncService
         $token   = env('CMB_API_TOKEN', '');
 
         try {
-            $response = Http::withHeaders([
-                'X-API-TOKEN' => $token,
-                'Accept'      => 'application/json',
-            ])->timeout(30)->get("{$baseUrl}/seminar/nip/{$nip}");
+            $headers = $this->buildHeaders($token);
+            $headers['Accept'] = 'application/json';
+            $response = Http::withHeaders($headers)
+                ->withOptions([
+                    'verify' => false,
+                ])
+                ->get("{$baseUrl}/seminar/nip/{$nip}");
 
             if (!$response->successful()) {
                 Log::warning("Seminar API non-success for NIP {$nip}", ['status' => $response->status()]);
@@ -929,6 +913,93 @@ class PenilaianSyncService
             return $formatted;
         } catch (\Exception $e) {
             Log::error("Seminar API error for NIP {$nip}: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    private function fetchRiwayatPengembanganKompetensiKegiatanPegawai(string $nip): ?array
+    {
+        $baseUrl = rtrim(env('NUSA_API_URL', 'https://nusa-be.dpd.go.id/api'), '/');
+        $token   = env('NUSA_API_TOKEN', '');
+
+        try {
+            $headers = $this->buildHeaders($token);
+            $headers['Accept'] = 'application/json';
+            $response = Http::withHeaders($headers)
+                ->withOptions([
+                    'verify' => false,
+                ])
+                ->get("{$baseUrl}/kegiatan-pegawai", [
+                    'nip'             => $nip,
+                    'with_pagination' => 'false',
+                    'with_isi_form'   => 'false',
+                ]);
+
+            if (!$response->successful()) {
+                Log::warning("KegiatanPegawai API non-success for NIP {$nip}", ['status' => $response->status()]);
+                return null;
+            }
+
+            $body    = $response->json();
+            $records = data_get($body, 'data') ?? [];
+
+            if (!is_array($records)) {
+                Log::warning("KegiatanPegawai API: unexpected payload for NIP {$nip}", ['body' => $body]);
+                return null;
+            }
+
+            $formatted = [];
+            foreach ($records as $record) {
+                if (!is_array($record)) {
+                    continue;
+                }
+
+                $sertifikatUrl = trim((string) ($record['link_sertifikat'] ?? ''));
+                $path = [];
+                if ($sertifikatUrl !== '') {
+                    $path['kegiatan_pegawai'] = [
+                        'slug'     => 'kegiatan_pegawai',
+                        'dok_id'   => (string) ($record['id'] ?? ''),
+                        'object'   => $sertifikatUrl,
+                        'dok_uri'  => $sertifikatUrl,
+                        'dok_nama' => 'Dok Sertifikat Kegiatan Pegawai',
+                    ];
+                }
+
+                $tanggalMulai   = $this->formatRiwayatDate(data_get($record, 'kegiatan.tanggal'));
+                $tanggalSelesai = $this->formatRiwayatDate(data_get($record, 'kegiatan.tanggal'));
+                $approvedAt     = $this->formatRiwayatDate($record['signed_at'] ?? $record['created_at'] ?? null);
+                $tahunKursus    = $this->parseRiwayatDate(data_get($record, 'kegiatan.tanggal'))?->format('Y');
+
+                $formatted[] = [
+                    'id'                     => $record['id'] ?? null,
+                    'path'                   => $path,
+                    'idPns'                  => null,
+                    'nipBaru'                => (string) ($record['nip'] ?? ''),
+                    'nipLama'                => '',
+                    'createdAt'              => $approvedAt,
+                    'jumlahJam'              => (float) ($record['jumlah_jp'] ?? 0),
+                    'updatedAt'              => $approvedAt,
+                    'namaKursus'             => (string) (data_get($record, 'kegiatan.nama_kegiatan') . ": " . data_get($record, 'kegiatan.judul_tema') ?? ''),
+                    'tahunKursus'            => $tahunKursus,
+                    'noSertipikat'           => (string) ($record['nomor_sertifikat'] ?? ''),
+                    'jenisDiklatId'          => null,
+                    'jenisKursusId'          => null,
+                    'tanggalKursus'          => $tanggalMulai,
+                    'jenisKursusNama'        => (string) (data_get($record, 'kegiatan.jenis_kegiatan') ?? 'Webinar'),
+                    'tanggalSelesaiKursus'   => $tanggalSelesai,
+                    'jenisKursusSertifikat'  => (string) (data_get($record, 'kegiatan.jenis_kegiatan') ?? 'Webinar'),
+                    'institusiPenyelenggara' => (string) (data_get($record, 'kegiatan.penyelenggara') ?? 'Sekretariat Jenderal DPD RI'),
+                    'seminarLokasi'          => data_get($record, 'kegiatan.tempat'),
+                    'seminarDeskripsi'       => data_get($record, 'kegiatan.deskripsi'),
+                    'seminarRumpunJabatan'   => null,
+                    'seminarSertifikat'      => $sertifikatUrl,
+                ];
+            }
+
+            return $formatted;
+        } catch (\Exception $e) {
+            Log::error("KegiatanPegawai API error for NIP {$nip}: " . $e->getMessage());
             return null;
         }
     }
@@ -1036,6 +1107,7 @@ class PenilaianSyncService
 
         $kursusRecords = null;
         $seminarRecords = null;
+        $kegiatanPegawaiRecords = null;
 
         try {
             $response = Http::withHeaders([
@@ -1065,8 +1137,9 @@ class PenilaianSyncService
         }
 
         $seminarRecords = $this->fetchRiwayatPengembanganKompetensiSeminar($nip);
+        $kegiatanPegawaiRecords = $this->fetchRiwayatPengembanganKompetensiKegiatanPegawai($nip);
 
-        if ($kursusRecords === null && $seminarRecords === null) {
+        if ($kursusRecords === null && $seminarRecords === null && $kegiatanPegawaiRecords === null) {
             if (!is_array($pegawai->riwayat_pengembangan_kompetensi)) {
                 return null;
             }
@@ -1084,9 +1157,10 @@ class PenilaianSyncService
         $recordSets = [
             $kursusRecords ?? [],
             $seminarRecords ?? [],
+            $kegiatanPegawaiRecords ?? [],
         ];
 
-        if ($kursusRecords === null || $seminarRecords === null) {
+        if ($kursusRecords === null || $seminarRecords === null || $kegiatanPegawaiRecords === null) {
             $recordSets[] = $cachedRecords;
         }
 
@@ -1791,5 +1865,22 @@ class PenilaianSyncService
         }
 
         return ['updated' => $updated, 'errors' => $errors];
+    }
+
+    private function buildHeaders($token): array
+    {
+        $headers = [];
+
+        if (!empty($token)) {
+            $encryptedToken = TokenEncryptionService::encryptTokenForHeader(
+                $token,
+                ['salt' => $token]
+            );
+            $headers['X-Api-Token'] = $encryptedToken;
+            $headers['origin'] = "https://nusa-be.dpd.go.id";
+            // $headers['origin'] = config('app.url', 'http://localhost');
+        }
+
+        return $headers;
     }
 }
