@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Instrumen;
 use App\Models\Pegawai;
 use App\Models\Penilaian;
+use App\Models\RiwayatAsesmen;
 use App\Models\StandarKompetensiMsk;
 use App\Models\SubIndikator;
 use Illuminate\Support\Facades\Http;
@@ -1789,6 +1790,29 @@ class PenilaianSyncService
 
                 $pegawaiId = (string) ($pegawai->id ?? '');
 
+                // Fetch latest RiwayatAsesmen for fallback of MSK values
+                $latestRiwayatAsesmen = null;
+                if ($pegawaiId !== '') {
+                    $latestRiwayatAsesmen = RiwayatAsesmen::where('pegawai_id', $pegawaiId)
+                        ->orderByDesc('created_at')
+                        ->orderByDesc('id')
+                        ->first();
+                }
+                $latestDataAsesmen = ($latestRiwayatAsesmen && is_array($latestRiwayatAsesmen->data_asesmen))
+                    ? $latestRiwayatAsesmen->data_asesmen
+                    : [];
+
+                $getAsesmenNilai = static function ($id) use ($latestDataAsesmen): ?float {
+                    if (!array_key_exists($id, $latestDataAsesmen)) return null;
+                    $e = $latestDataAsesmen[$id];
+                    if (is_array($e)) {
+                        if (isset($e['nilai']) && is_numeric($e['nilai'])) return (float) $e['nilai'];
+                        if (isset($e['hasil']) && is_numeric($e['hasil'])) return (float) $e['hasil'];
+                        return null;
+                    }
+                    return is_numeric($e) ? (float) $e : null;
+                };
+
                 foreach ($allSub as $subId => $sub) {
                     $bobot              = (float) ($sub->bobot ?? 0);
                     $usesStandarMsk     = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
@@ -1830,6 +1854,13 @@ class PenilaianSyncService
                             ?? $oldNilai($subId);
                     } else {
                         $nilai = $oldNilai($subId);
+                    }
+
+                    if ($usesStandarMsk && ($nilai <= 0 || $nilai === null)) {
+                        $asesmenNilai = $getAsesmenNilai($subId);
+                        if ($asesmenNilai !== null && $asesmenNilai > 0) {
+                            $nilai = $asesmenNilai;
+                        }
                     }
 
                     $standar = ($usesStandarMsk && $jid && isset($standarMap[$jid][$subId]))
