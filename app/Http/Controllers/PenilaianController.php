@@ -11,6 +11,7 @@ use App\Models\SubIndikator;
 use App\Services\PenilaianSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -97,7 +98,7 @@ class PenilaianController extends Controller
                 $filterNips = is_array($raw) ? array_map('strval', $raw) : [strval($raw)];
             }
 
-            $baseQuery = fn () => $filterNips !== null
+            $baseQuery = fn() => $filterNips !== null
                 ? Pegawai::whereIn('nip', $filterNips)
                 : Pegawai::query();
 
@@ -133,18 +134,77 @@ class PenilaianController extends Controller
                 // Queue table may not exist when using non-database driver
             }
 
+            $totalApiCalls     = $session->total_api_calls ?? null;
+            $completedApiCalls = $session->completed_api_calls ?? 0;
+            $lastApiName       = $session->last_api_name ?? null;
+            $statusStr         = $session->status ?? 'running';
+            $errorMessage      = $session->error_message ?? null;
+
+            // Check if any failed jobs exist for Penilaian sync
+            try {
+                if ($session && Schema::hasTable('failed_jobs')) {
+                    $failedJob = DB::table('failed_jobs')
+                        ->where(function ($q) {
+                            $q->where('payload', 'like', '%SyncPenilaianBatchJob%')
+                                ->orWhere('payload', 'like', '%DispatchSyncPenilaianJob%');
+                        })
+                        ->where('failed_at', '>=', $sessionDispatchedAt ?? now()->subHours(1))
+                        ->latest('id')
+                        ->first();
+
+                    if ($failedJob) {
+                        $statusStr = 'failed';
+                        $rawErr = $failedJob->exception ?? 'Job execution failed in queue worker';
+                        $firstLine = strtok((string) $rawErr, "\n");
+                        $errorMessage = \Illuminate\Support\Str::limit($firstLine, 300);
+
+                        if (($session->status ?? '') !== 'failed') {
+                            DB::table('penilaian_sync_sessions')
+                                ->where('id', $session->id)
+                                ->update([
+                                    'status'        => 'failed',
+                                    'error_message' => $errorMessage,
+                                    'updated_at'    => now(),
+                                ]);
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                // Ignore if table doesn't exist
+            }
+
+            $isError = ($statusStr === 'failed') || !empty($errorMessage);
+
+            $progressPct = 0;
+            if ($totalApiCalls !== null && $totalApiCalls > 0) {
+                $progressPct = min(100, (int) round(($completedApiCalls / $totalApiCalls) * 100));
+            } elseif ($sessionTotalNips !== null && $sessionTotalNips > 0 && $sessionSynced !== null) {
+                $progressPct = min(100, (int) round(($sessionSynced / $sessionTotalNips) * 100));
+            }
+
+            if (!$isError && ($queuePending === 0 || $queuePending === null) && ($sessionPending === 0 || $sessionPending === null) && ($totalApiCalls === null || $completedApiCalls >= $totalApiCalls)) {
+                $statusStr = 'completed';
+            }
+
             return response()->json([
-                'total'                => $total,
-                'last_sync_at'         => $lastSyncAt,
-                'oldest_sync_at'       => $oldestSyncAt,
-                'filter_nips'          => $filterNips,
-                'session_dispatched_at'=> $sessionDispatchedAt,
-                'session_total_nips'   => $sessionTotalNips,
-                'session_total_batches'=> $sessionTotalBatches,
-                'session_synced'       => $sessionSynced,
-                'session_pending'      => $sessionPending,
-                'queue_pending'        => $queuePending,
-                'queue_completed'      => $queueCompleted,
+                'total'                 => $total,
+                'last_sync_at'          => $lastSyncAt,
+                'oldest_sync_at'        => $oldestSyncAt,
+                'filter_nips'           => $filterNips,
+                'session_dispatched_at' => $sessionDispatchedAt,
+                'session_total_nips'    => $sessionTotalNips,
+                'session_total_batches' => $sessionTotalBatches,
+                'session_synced'        => $sessionSynced,
+                'session_pending'       => $sessionPending,
+                'total_api_calls'       => $totalApiCalls,
+                'completed_api_calls'   => $completedApiCalls,
+                'last_api_name'         => $lastApiName,
+                'status'                => $statusStr,
+                'error_message'         => $errorMessage,
+                'is_error'              => $isError,
+                'progress_pct'          => $progressPct,
+                'queue_pending'         => $queuePending,
+                'queue_completed'       => $queueCompleted,
             ]);
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 500);
@@ -173,11 +233,16 @@ class PenilaianController extends Controller
 
             // Insert sync session row so syncStatus can track current-session progress
             DB::table('penilaian_sync_sessions')->insert([
-                'dispatched_at' => now(),
-                'total_nips'    => null,
-                'total_batches' => null,
-                'created_at'    => now(),
-                'updated_at'    => now(),
+                'dispatched_at'       => now(),
+                'total_nips'          => null,
+                'total_batches'       => null,
+                'total_api_calls'     => null,
+                'completed_api_calls' => 0,
+                'last_api_name'       => null,
+                'status'              => 'running',
+                'error_message'       => null,
+                'created_at'          => now(),
+                'updated_at'          => now(),
             ]);
 
             DispatchSyncPenilaianJob::dispatch($filterNips);
@@ -598,7 +663,7 @@ class PenilaianController extends Controller
 
                 $penilaian = [];
                 $rowError = null;
-                    for ($c = 0; $c < count($subNames); $c++) {
+                for ($c = 0; $c < count($subNames); $c++) {
                     $colIndex = $c + 2; // column 2 onwards
                     $value = $sheet->getCell([$colIndex, $row])->getCalculatedValue();
                     $value = is_null($value) ? '' : trim((string) $value);

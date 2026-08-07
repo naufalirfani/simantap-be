@@ -13,6 +13,9 @@ return new class extends Migration
             $table->timestamp('dispatched_at');
             $table->unsignedInteger('total_nips')->nullable();
             $table->unsignedInteger('total_batches')->nullable();
+            $table->unsignedInteger('total_api_calls')->nullable();
+            $table->unsignedInteger('completed_api_calls')->default(0);
+            $table->string('last_api_name')->nullable();
             $table->timestamps();
         });
     }

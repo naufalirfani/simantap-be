@@ -8,6 +8,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -36,15 +37,45 @@ class SyncPenilaianBatchJob implements ShouldQueue
             'nips'  => $this->nips,
         ]);
 
-        $result = $syncService->syncPenilaian($this->nips);
+        try {
+            $result = $syncService->syncPenilaian($this->nips);
 
-        Log::info('SyncPenilaianBatchJob: batch complete', [
-            'updated' => $result['updated'],
-            'errors'  => count($result['errors']),
-        ]);
+            Log::info('SyncPenilaianBatchJob: batch complete', [
+                'updated' => $result['updated'],
+                'errors'  => count($result['errors']),
+            ]);
 
-        if (!empty($result['errors'])) {
-            Log::warning('SyncPenilaianBatchJob: some records had errors', ['errors' => $result['errors']]);
+            if (!empty($result['errors'])) {
+                Log::warning('SyncPenilaianBatchJob: some records had errors', ['errors' => $result['errors']]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('SyncPenilaianBatchJob failed: ' . $e->getMessage(), [
+                'nips'      => $this->nips,
+                'exception' => $e,
+            ]);
+            $this->markSessionFailed($e->getMessage());
+            throw $e;
+        }
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        $this->markSessionFailed($exception->getMessage());
+    }
+
+    private function markSessionFailed(string $errorMessage): void
+    {
+        try {
+            $latest = DB::table('penilaian_sync_sessions')->latest('id')->first();
+            if ($latest && $latest->status !== 'failed') {
+                DB::table('penilaian_sync_sessions')->where('id', $latest->id)->update([
+                    'status'        => 'failed',
+                    'error_message' => "Batch error: " . $errorMessage,
+                    'updated_at'    => now(),
+                ]);
+            }
+        } catch (\Throwable $ex) {
+            // Ignore DB errors in fallback
         }
     }
 }

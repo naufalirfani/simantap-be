@@ -8,6 +8,7 @@ use App\Models\Penilaian;
 use App\Models\RiwayatAsesmen;
 use App\Models\StandarKompetensiMsk;
 use App\Models\SubIndikator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -212,6 +213,8 @@ class PenilaianSyncService
         } catch (\Exception $e) {
             Log::error("SKP API error for NIP {$nip}: " . $e->getMessage());
             return $resolveKuadran(is_array($pegawai->riwayat_skp) ? $pegawai->riwayat_skp : null);
+        } finally {
+            $this->recordApiHitProgress('SKP API', $nip);
         }
     }
 
@@ -305,6 +308,8 @@ class PenilaianSyncService
         } catch (\Exception $e) {
             Log::error("HukDis API error for NIP {$nip}: " . $e->getMessage());
             return null;
+        } finally {
+            $this->recordApiHitProgress('Hukuman Disiplin API', $nip);
         }
     }
 
@@ -471,6 +476,8 @@ class PenilaianSyncService
         } catch (\Exception $e) {
             Log::error("RiwayatJabatan API error for NIP {$nip}: " . $e->getMessage());
             return is_array($pegawai->riwayat_jabatan) ? $pegawai->riwayat_jabatan : null;
+        } finally {
+            $this->recordApiHitProgress('Riwayat Jabatan API', $nip);
         }
     }
 
@@ -1048,6 +1055,24 @@ class PenilaianSyncService
         return $merged;
     }
 
+    private function recordApiHitProgress(string $apiName, string $nip): void
+    {
+        try {
+            $latest = DB::table('penilaian_sync_sessions')->latest('id')->first();
+            if ($latest) {
+                DB::table('penilaian_sync_sessions')
+                    ->where('id', $latest->id)
+                    ->update([
+                        'completed_api_calls' => DB::raw('completed_api_calls + 1'),
+                        'last_api_name'       => "{$apiName} (NIP {$nip})",
+                        'updated_at'          => now(),
+                    ]);
+            }
+        } catch (\Throwable $e) {
+            // Silently ignore tracking errors
+        }
+    }
+
     private function isDiklatFungsionalRecord(array $record): bool
     {
         return strtoupper(trim((string) ($record['jenisKursusSertifikat'] ?? ''))) === 'DIKLAT FUNGSIONAL';
@@ -1135,6 +1160,8 @@ class PenilaianSyncService
         } catch (\Exception $e) {
             Log::error("PengembanganKompetensi API error for NIP {$nip}: " . $e->getMessage());
             $kursusRecords = null;
+        } finally {
+            $this->recordApiHitProgress('Riwayat Kursus API', $nip);
         }
 
         $seminarRecords = $this->fetchRiwayatPengembanganKompetensiSeminar($nip);
@@ -1365,6 +1392,8 @@ class PenilaianSyncService
         } catch (\Exception $e) {
             Log::error("DiklatStruktural API error for NIP {$nip}: " . $e->getMessage());
             return is_array($pegawai->riwayat_diklat) ? $pegawai->riwayat_diklat : null;
+        } finally {
+            $this->recordApiHitProgress('Diklat Struktural API', $nip);
         }
     }
 
@@ -1432,20 +1461,24 @@ class PenilaianSyncService
         } catch (\Exception $e) {
             Log::error("Sertifikasi API error for NIP {$nip}: " . $e->getMessage());
             return is_array($pegawai->riwayat_sertifikasi) ? $pegawai->riwayat_sertifikasi : null;
+        } finally {
+            $this->recordApiHitProgress('Sertifikasi API', $nip);
         }
     }
 
     /**
      * Derive the nilai for "Diklat Kepemimpinan/Keahlian/Penjenjangan" by
-     * combining the count from riwayat diklat struktural (all records, no year
-     * filter) with the count from riwayat sertifikasi (only records whose
-     * tanggalSertifikat falls within the last 3 years), then matching the
-     * combined total against instrumen scoring tiers.
+     * combining:
+     * 1) non-fungsional diklat records (all records, no year filter),
+     * 2) non-fungsional sertifikasi records (only records whose tanggalSertifikat falls within the last 3 years),
+     * 3) diklat fungsional records from kursus/diklat/sertifikasi (all records, no date filter since validity is lifetime),
+     * then matching the combined total against instrumen scoring tiers.
      *
      * Counting rules:
-     *  - API 1 (rw-diklat):     count all de-duplicated records regardless of year.
-     *  - API 2 (rw-sertifikasi): count only records where tanggalSertifikat >= 3 years ago.
-     *  - Total = count(diklat) + count(sertifikasi within 3 years).
+     *  - Diklat non-fungsional: count all de-duplicated records regardless of year.
+     *  - Sertifikasi non-fungsional: count only records where tanggalSertifikat >= 3 years ago.
+     *  - Diklat Fungsional: count all records without checking tanggalSertifikat (lifetime validity).
+     *  - Total = count(diklat non-fungsional) + count(sertifikasi non-fungsional within 3 years) + count(diklat fungsional).
      *
      * Instrumen tier examples:
      *   "a. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 3 kali atau lebih"
@@ -1455,6 +1488,7 @@ class PenilaianSyncService
      * @param  array|null $riwayatDiklat       de-duplicated records from fetchRiwayatDiklatStruktural()
      * @param  array|null $riwayatSertifikasi  de-duplicated records from fetchRiwayatSertifikasi()
      * @param  \Illuminate\Support\Collection $instrumens
+     * @param  array|null $riwayatKursus
      * @return float|null
      */
     public function getNilaiDiklatKepemimpinan(
@@ -1488,12 +1522,15 @@ class PenilaianSyncService
             }
         }
 
-        // Count sertifikasi records within the last 3 years
+        // Count sertifikasi records within the last 3 years (excluding diklat fungsional)
         $threeYearsAgo    = now()->subYears(3)->startOfDay();
         $sertifikasiCount = 0;
 
         if (is_array($riwayatSertifikasi)) {
             foreach ($riwayatSertifikasi as $record) {
+                if (!is_array($record) || $this->isDiklatFungsionalRecord($record)) {
+                    continue;
+                }
                 $dateStr = $record['tanggalSertifikat'] ?? null;
                 $date    = $parseDate($dateStr);
                 if ($date !== null && $date->greaterThanOrEqualTo($threeYearsAgo)) {
@@ -1502,8 +1539,7 @@ class PenilaianSyncService
             }
         }
 
-        // Count riwayat kursus records where jenisKursusSertifikat = "DIKLAT FUNGSIONAL"
-        // (all records, no year filter)
+        // Count riwayat diklat fungsional records (all records, lifetime validity / no tanggalSertifikat filter)
         $diklatFungsionalCount = 0;
         $riwayatFungsional = [];
         $seenFungsional = [];
@@ -1534,7 +1570,18 @@ class PenilaianSyncService
         }
 
         if (is_array($riwayatDiklat)) {
-            foreach ($riwayatFungsional as $record) {
+            foreach ($riwayatDiklat as $record) {
+                if (!is_array($record) || !$this->isDiklatFungsionalRecord($record)) {
+                    continue;
+                }
+
+                $record['__fungsional_key'] = $this->getRiwayatPengembanganKompetensiRecordKey($record);
+                $appendFungsionalRecord($record);
+            }
+        }
+
+        if (is_array($riwayatSertifikasi)) {
+            foreach ($riwayatSertifikasi as $record) {
                 if (!is_array($record) || !$this->isDiklatFungsionalRecord($record)) {
                     continue;
                 }

@@ -59,9 +59,12 @@ class DispatchSyncPenilaianJob implements ShouldQueue
         $latest = DB::table('penilaian_sync_sessions')->latest('id')->first();
         if ($latest) {
             DB::table('penilaian_sync_sessions')->where('id', $latest->id)->update([
-                'total_nips'    => count($nips),
-                'total_batches' => count($chunks),
-                'updated_at'    => now(),
+                'total_nips'          => count($nips),
+                'total_batches'       => count($chunks),
+                'total_api_calls'     => count($nips) * 6,
+                'completed_api_calls' => 0,
+                'last_api_name'       => null,
+                'updated_at'          => now(),
             ]);
         }
 
@@ -71,6 +74,26 @@ class DispatchSyncPenilaianJob implements ShouldQueue
             Log::info("DispatchSyncPenilaianJob: dispatched batch #" . ($index + 1), [
                 'count' => count($chunk),
             ]);
+        }
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        Log::error('DispatchSyncPenilaianJob failed: ' . $exception->getMessage(), [
+            'exception' => $exception,
+        ]);
+
+        try {
+            $latest = DB::table('penilaian_sync_sessions')->latest('id')->first();
+            if ($latest) {
+                DB::table('penilaian_sync_sessions')->where('id', $latest->id)->update([
+                    'status'        => 'failed',
+                    'error_message' => $exception->getMessage(),
+                    'updated_at'    => now(),
+                ]);
+            }
+        } catch (\Throwable $ex) {
+            // Ignore DB errors in fallback
         }
     }
 }
