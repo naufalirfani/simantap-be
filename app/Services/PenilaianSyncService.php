@@ -770,7 +770,17 @@ class PenilaianSyncService
             ->orderByDesc('created_at');
 
         if ($minTanggalSk !== null) {
-            $query->whereDate('tanggal_sk', '>=', $minTanggalSk->toDateString());
+            $minDateStr = $minTanggalSk->toDateString();
+            $query->where(function ($q) use ($minDateStr) {
+                $q->where(function ($sub) use ($minDateStr) {
+                    $sub->whereNotNull('masa_berlaku_selesai')
+                        ->whereDate('masa_berlaku_selesai', '>=', $minDateStr);
+                })->orWhere(function ($sub) use ($minDateStr) {
+                    $sub->whereNull('masa_berlaku_mulai')
+                        ->whereNull('masa_berlaku_selesai')
+                        ->whereDate('tanggal_sk', '>=', $minDateStr);
+                });
+            });
         }
 
         $pengajuan = $query->first();

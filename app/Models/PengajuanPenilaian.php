@@ -22,12 +22,16 @@ class PengajuanPenilaian extends Model
         'file_type',
         'status',
         'tanggal_sk',
+        'masa_berlaku_mulai',
+        'masa_berlaku_selesai',
         'catatan',
         'catatan_admin',
     ];
 
     protected $casts = [
         'tanggal_sk' => 'date',
+        'masa_berlaku_mulai' => 'date',
+        'masa_berlaku_selesai' => 'date',
     ];
 
     /**

@@ -91,7 +91,9 @@ class PengajuanPenilaianController extends Controller
                     'instrumen_id' => 'required|uuid|exists:instrumens,id',
                     'file' => 'required|file|max:10240', // max 10MB
                     'status' => 'required|string|max:255',
-                    'tanggal_sk' => 'sometimes|date',
+                    'tanggal_sk' => 'sometimes|date|nullable',
+                    'masa_berlaku_mulai' => 'sometimes|date|nullable',
+                    'masa_berlaku_selesai' => 'sometimes|date|nullable',
                     'catatan' => 'sometimes|string|nullable',
                 ], [
                     'status.unique_diajukan' => 'Pengajuan sedang diproses untuk penilaian yang sama',
@@ -137,6 +139,8 @@ class PengajuanPenilaianController extends Controller
                     'file_type' => $file->getMimeType(),
                     'status' => $validated['status'],
                     'tanggal_sk' => $validated['tanggal_sk'] ?? null,
+                    'masa_berlaku_mulai' => $validated['masa_berlaku_mulai'] ?? null,
+                    'masa_berlaku_selesai' => $validated['masa_berlaku_selesai'] ?? null,
                     'catatan' => $validated['catatan'] ?? null,
                 ]);
             } else {
@@ -147,7 +151,9 @@ class PengajuanPenilaianController extends Controller
                     'instrumen_id' => 'required|uuid|exists:instrumens,id',
                     'bukti_dukung' => 'required|string|max:255',
                     'status' => 'required|string|max:255',
-                    'tanggal_sk' => 'sometimes|date',
+                    'tanggal_sk' => 'sometimes|date|nullable',
+                    'masa_berlaku_mulai' => 'sometimes|date|nullable',
+                    'masa_berlaku_selesai' => 'sometimes|date|nullable',
                     'catatan' => 'sometimes|string|nullable',
                 ]);
 
@@ -235,7 +241,9 @@ class PengajuanPenilaianController extends Controller
                 'bukti_dukung' => 'sometimes|string|max:255',
                 'file' => 'sometimes|file|max:10240', // max 10MB
                 'status' => 'sometimes|string|max:255',
-                'tanggal_sk' => 'sometimes|date',
+                'tanggal_sk' => 'sometimes|date|nullable',
+                'masa_berlaku_mulai' => 'sometimes|date|nullable',
+                'masa_berlaku_selesai' => 'sometimes|date|nullable',
                 'catatan' => 'sometimes|string|nullable',
             ]);
 
@@ -325,7 +333,9 @@ class PengajuanPenilaianController extends Controller
 
             $validated = $request->validate([
                 'catatan_admin' => 'sometimes|string|nullable',
-                'tanggal_sk' => 'sometimes|date',
+                'tanggal_sk' => 'sometimes|date|nullable',
+                'masa_berlaku_mulai' => 'sometimes|date|nullable',
+                'masa_berlaku_selesai' => 'sometimes|date|nullable',
             ]);
 
             $pengajuanPenilaian->update(array_merge($validated, [
