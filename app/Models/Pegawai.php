@@ -33,6 +33,7 @@ class Pegawai extends Model
         'riwayat_diklat',
         'riwayat_sertifikasi',
         'riwayat_pendidikan',
+        'riwayat_umpan_balik',
         'last_sync_penilaian',
     ];
 
@@ -44,6 +45,7 @@ class Pegawai extends Model
         'riwayat_diklat'                   => 'array',
         'riwayat_sertifikasi'              => 'array',
         'riwayat_pendidikan'               => 'array',
+        'riwayat_umpan_balik'              => 'array',
         'last_sync_penilaian'              => 'datetime',
     ];
 

@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Pegawai;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Log;
 
 class PegawaiController extends Controller
 {
@@ -57,7 +56,7 @@ class PegawaiController extends Controller
     {
         try {
             $perPage = $request->get('per_page', 15);
-            $perPage = min(max((int)$perPage, 1), 100);
+            $perPage = min(max((int) $perPage, 1), 100);
 
             // allow overriding via query params `withPenilaian` or `with_penilaian` (snake_case from FE)
             $withPenilaian = $request->boolean('with_penilaian', $request->boolean('withPenilaian', $withPenilaian));
@@ -116,7 +115,7 @@ class PegawaiController extends Controller
                     ->pluck('subindikators.id')
                     ->toArray();
 
-                if (!empty($indikatorAsesmenIds)) {
+                if (! empty($indikatorAsesmenIds)) {
                     $clauses = [];
                     $bindings = [];
                     foreach ($indikatorAsesmenIds as $id) {
@@ -127,9 +126,9 @@ class PegawaiController extends Controller
 
                     $sql = implode(' OR ', $clauses);
                     if ($sudah) {
-                        $query->whereRaw("EXISTS (SELECT 1 FROM penilaians WHERE penilaians.pegawai_id = pegawai.id AND (" . $sql . "))", $bindings);
+                        $query->whereRaw('EXISTS (SELECT 1 FROM penilaians WHERE penilaians.pegawai_id = pegawai.id AND ('.$sql.'))', $bindings);
                     } else {
-                        $query->whereRaw("NOT EXISTS (SELECT 1 FROM penilaians WHERE penilaians.pegawai_id = pegawai.id AND (" . $sql . "))", $bindings);
+                        $query->whereRaw('NOT EXISTS (SELECT 1 FROM penilaians WHERE penilaians.pegawai_id = pegawai.id AND ('.$sql.'))', $bindings);
                     }
                 }
             }
@@ -138,7 +137,7 @@ class PegawaiController extends Controller
             // Use regex to ensure only pure digits are cast to avoid errors on non-numeric values.
             $query->orderByRaw("(CASE WHEN peta_jabatan.kelas_jabatan ~ '^[0-9]+$' THEN CAST(peta_jabatan.kelas_jabatan AS integer) ELSE NULL END) DESC NULLS LAST");
 
-            if (!$withPagination) {
+            if (! $withPagination) {
                 $perPage = PHP_INT_MAX;
             }
 
@@ -194,7 +193,9 @@ class PegawaiController extends Controller
                                 // legacy numeric value stored directly
                                 $hasil = (float) $val;
                             }
-                            if ($hasil === null) continue;
+                            if ($hasil === null) {
+                                continue;
+                            }
                             $kategori = $subKategoriMap[$subId] ?? 'kinerja';
                             if ($kategori === 'potensial') {
                                 $nilaiPot += $hasil;
@@ -249,7 +250,7 @@ class PegawaiController extends Controller
 
             $pegawai = $query->first();
 
-            if (!$pegawai) {
+            if (! $pegawai) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Pegawai not found',
@@ -275,6 +276,7 @@ class PegawaiController extends Controller
                 'riwayat_diklat' => $pegawai->riwayat_diklat,
                 'riwayat_sertifikasi' => $pegawai->riwayat_sertifikasi,
                 'riwayat_pendidikan' => $pegawai->riwayat_pendidikan,
+                'riwayat_umpan_balik' => $pegawai->riwayat_umpan_balik,
                 'created_at' => $pegawai->created_at,
                 'updated_at' => $pegawai->updated_at,
             ];
@@ -300,20 +302,23 @@ class PegawaiController extends Controller
                 $kotakList = $daftarKotak->kotak ?? null;
 
                 $getKotakId = function ($potensial, $kinerja) use ($kotakList) {
-                    if (!is_array($kotakList)) return 0;
+                    if (! is_array($kotakList)) {
+                        return 0;
+                    }
                     foreach ($kotakList as $kotak) {
-                        $potMin = isset($kotak['potensialRange']['min']) ? (float)$kotak['potensialRange']['min'] : null;
-                        $potMax = isset($kotak['potensialRange']['max']) ? (float)$kotak['potensialRange']['max'] : null;
-                        $kinMin = isset($kotak['kinerjaRange']['min']) ? (float)$kotak['kinerjaRange']['min'] : null;
-                        $kinMax = isset($kotak['kinerjaRange']['max']) ? (float)$kotak['kinerjaRange']['max'] : null;
+                        $potMin = isset($kotak['potensialRange']['min']) ? (float) $kotak['potensialRange']['min'] : null;
+                        $potMax = isset($kotak['potensialRange']['max']) ? (float) $kotak['potensialRange']['max'] : null;
+                        $kinMin = isset($kotak['kinerjaRange']['min']) ? (float) $kotak['kinerjaRange']['min'] : null;
+                        $kinMax = isset($kotak['kinerjaRange']['max']) ? (float) $kotak['kinerjaRange']['max'] : null;
 
                         $potMatch = ($potMin === null || $potensial >= $potMin) && ($potMax === null || $potensial <= $potMax);
                         $kinMatch = ($kinMin === null || $kinerja >= $kinMin) && ($kinMax === null || $kinerja <= $kinMax);
 
                         if ($potMatch && $kinMatch) {
-                            return (int)($kotak['id'] ?? 0);
+                            return (int) ($kotak['id'] ?? 0);
                         }
                     }
+
                     return 0;
                 };
 
@@ -329,11 +334,13 @@ class PegawaiController extends Controller
                         } elseif (is_numeric($val)) {
                             $hasil = (float) $val;
                         }
-                        if ($hasil === null) continue;
+                        if ($hasil === null) {
+                            continue;
+                        }
                         $kategori = $subKategoriMap[$subId] ?? 'kinerja';
                         if ($kategori === 'potensial') {
                             $nilaiPot += $hasil;
-                        } else if ($kategori === 'kinerja') {
+                        } elseif ($kategori === 'kinerja') {
                             $nilaiKin += $hasil;
                         }
                     }
@@ -383,7 +390,7 @@ class PegawaiController extends Controller
     /**
      * Recommend pegawai based on peta_jabatan_id (returns up to 3 random pegawai)
      */
-    public function recommend(String $peta_jabatan_id, Request $request)
+    public function recommend(string $peta_jabatan_id, Request $request)
     {
         try {
             $retensi = $request->boolean('retensi', false);
@@ -508,30 +515,33 @@ class PegawaiController extends Controller
 
             // Determine weighting based on vacant position type
             $weightMap = [
-                'Jabatan Pimpinan Tinggi Madya'   => ['total' => 0.8, 'teknis' => 0.2],
+                'Jabatan Pimpinan Tinggi Madya' => ['total' => 0.8, 'teknis' => 0.2],
                 'Jabatan Pimpinan Tinggi Pratama' => ['total' => 0.7, 'teknis' => 0.3],
-                'Jabatan Administrator'           => ['total' => 0.6, 'teknis' => 0.4],
-                'Jabatan Pengawas'                => ['total' => 0.5, 'teknis' => 0.5],
+                'Jabatan Administrator' => ['total' => 0.6, 'teknis' => 0.4],
+                'Jabatan Pengawas' => ['total' => 0.5, 'teknis' => 0.5],
             ];
             $weights = $weightMap[$mappedType] ?? null;
 
             $kotakList = $daftarKotak->kotak ?? null;
 
             $getKotakId = function ($potensial, $kinerja) use ($kotakList) {
-                if (!is_array($kotakList)) return 0;
+                if (! is_array($kotakList)) {
+                    return 0;
+                }
                 foreach ($kotakList as $kotak) {
-                    $potMin = isset($kotak['potensialRange']['min']) ? (float)$kotak['potensialRange']['min'] : null;
-                    $potMax = isset($kotak['potensialRange']['max']) ? (float)$kotak['potensialRange']['max'] : null;
-                    $kinMin = isset($kotak['kinerjaRange']['min']) ? (float)$kotak['kinerjaRange']['min'] : null;
-                    $kinMax = isset($kotak['kinerjaRange']['max']) ? (float)$kotak['kinerjaRange']['max'] : null;
+                    $potMin = isset($kotak['potensialRange']['min']) ? (float) $kotak['potensialRange']['min'] : null;
+                    $potMax = isset($kotak['potensialRange']['max']) ? (float) $kotak['potensialRange']['max'] : null;
+                    $kinMin = isset($kotak['kinerjaRange']['min']) ? (float) $kotak['kinerjaRange']['min'] : null;
+                    $kinMax = isset($kotak['kinerjaRange']['max']) ? (float) $kotak['kinerjaRange']['max'] : null;
 
                     $potMatch = ($potMin === null || $potensial >= $potMin) && ($potMax === null || $potensial <= $potMax);
                     $kinMatch = ($kinMin === null || $kinerja >= $kinMin) && ($kinMax === null || $kinerja <= $kinMax);
 
                     if ($potMatch && $kinMatch) {
-                        return (int)($kotak['id'] ?? 0);
+                        return (int) ($kotak['id'] ?? 0);
                     }
                 }
+
                 return 0;
             };
 
@@ -541,8 +551,8 @@ class PegawaiController extends Controller
 
                 // Check if pegawai meets syarat suksesi requirements
                 $meetsSyarat = true;
-                if (!empty($syaratMap)) {
-                    if (!is_array($penObj)) {
+                if (! empty($syaratMap)) {
+                    if (! is_array($penObj)) {
                         $penObj = [];
                     }
 
@@ -567,7 +577,7 @@ class PegawaiController extends Controller
                 }
 
                 // Skip this pegawai if they don't meet syarat suksesi
-                if (!$meetsSyarat) {
+                if (! $meetsSyarat) {
                     continue;
                 }
 
@@ -581,7 +591,9 @@ class PegawaiController extends Controller
                         } elseif (is_numeric($val)) {
                             $hasil = (float) $val;
                         }
-                        if ($hasil === null) continue;
+                        if ($hasil === null) {
+                            continue;
+                        }
                         $kategori = $subKategoriMap[$subId] ?? 'kinerja';
                         if ($kategori === 'potensial') {
                             $nilaiPot += $hasil;
@@ -648,10 +660,16 @@ class PegawaiController extends Controller
 
                 // 3) age: older first -> smaller dob_ts means older
                 if ($a['dob_ts'] !== $b['dob_ts']) {
-                    if ($a['dob_ts'] === null) return 1;
-                    if ($b['dob_ts'] === null) return -1;
+                    if ($a['dob_ts'] === null) {
+                        return 1;
+                    }
+                    if ($b['dob_ts'] === null) {
+                        return -1;
+                    }
+
                     return $a['dob_ts'] <=> $b['dob_ts'];
                 }
+
                 return 0;
             });
 
@@ -659,6 +677,7 @@ class PegawaiController extends Controller
 
             $data = array_map(function ($c) {
                 $item = $c['item'];
+
                 return [
                     'nip' => $item->nip,
                     'nama' => $item->name,

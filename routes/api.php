@@ -1,23 +1,23 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DaftarKotakController;
 use App\Http\Controllers\IndikatorController;
 use App\Http\Controllers\InstrumenController;
+use App\Http\Controllers\LampiranAsesmenController;
 use App\Http\Controllers\PegawaiController;
+use App\Http\Controllers\PengajuanPenilaianController;
 use App\Http\Controllers\PengembanganStatistikController;
+use App\Http\Controllers\PenilaianController;
 use App\Http\Controllers\PetaJabatanController;
+use App\Http\Controllers\RiwayatAsesmenController;
+use App\Http\Controllers\SettingBobot360Controller;
+use App\Http\Controllers\StandarKompetensiMskController;
 use App\Http\Controllers\StatistikController;
 use App\Http\Controllers\SubIndikatorController;
-use App\Http\Controllers\DaftarKotakController;
-use App\Http\Controllers\PenilaianController;
-use App\Http\Controllers\RiwayatAsesmenController;
-use App\Http\Controllers\StandarKompetensiMskController;
 use App\Http\Controllers\SyaratSuksesiController;
-use App\Http\Controllers\LampiranAsesmenController;
+use App\Http\Controllers\UmpanBalik360Controller;
 use Illuminate\Support\Facades\Route;
-
-use App\Http\Controllers\PengajuanPenilaianController;
-use App\Http\Controllers\SettingBobot360Controller;
 
 // Admin Authentication Routes (no middleware)
 Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/login', [AuthController::class, 'login']);
@@ -94,5 +94,7 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     // Setting Bobot 360 Routes
     Route::get('settings/bobot-360', [SettingBobot360Controller::class, 'index']);
     Route::post('settings/bobot-360', [SettingBobot360Controller::class, 'store']);
-});
 
+    // Umpan Balik 360 Routes
+    Route::post('umpan-balik-360/sync', [UmpanBalik360Controller::class, 'sync']);
+});

@@ -10,13 +10,14 @@ class SettingBobot360Controller extends Controller
     private $filePath = 'settings/bobot_360.json';
 
     private $categories = [
-        'jpt_madya',
+        'sekjen',
+        'deputi',
         'jpt_pratama',
         'administrator',
         'pengawas',
         'pelaksana',
         'jf',
-        'kepala_kantor'
+        'kepala_kantor',
     ];
 
     /**
@@ -90,7 +91,7 @@ class SettingBobot360Controller extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Gagal mengambil setting bobot 360.',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -123,7 +124,7 @@ class SettingBobot360Controller extends Controller
 
                 if (round($total, 2) != 100.00) {
                     return response()->json([
-                        'message' => "Total bobot untuk " . str_replace('_', ' ', strtoupper($category)) . " harus bernilai 100. Total saat ini: {$total}"
+                        'message' => 'Total bobot untuk '.str_replace('_', ' ', strtoupper($category))." harus bernilai 100. Total saat ini: {$total}",
                     ], 422);
                 }
             }
@@ -133,17 +134,17 @@ class SettingBobot360Controller extends Controller
 
             return response()->json([
                 'message' => 'Setting bobot 360 berhasil disimpan.',
-                'data' => $data
+                'data' => $data,
             ], 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'message' => 'Validasi gagal.',
-                'errors' => $e->errors()
+                'errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Gagal menyimpan setting bobot 360.',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
