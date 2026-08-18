@@ -145,7 +145,7 @@ class UmpanBalik360Service
                 ['salt' => $token]
             );
             $headers['X-Api-Token'] = $encryptedToken;
-            $headers['origin'] = 'https://nusa-be.dpd.go.id';
+            $headers['origin'] = 'https://nusa.dpd.go.id';
         }
 
         return $headers;

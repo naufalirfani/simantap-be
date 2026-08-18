@@ -30,6 +30,7 @@ class PenilaianSyncService
         }
         $s = preg_replace('/[^a-z0-9]+/i', ' ', $s);
         $s = preg_replace('/\s+/', ' ', $s);
+
         return trim($s);
     }
 
@@ -40,11 +41,10 @@ class PenilaianSyncService
     /**
      * Compute the weighted "hasil" score for a subindikator.
      *
-     * @param  float      $nilai
-     * @param  float      $bobot           percentage weight (0-100)
-     * @param  bool       $usesStandarMsk  divide by standar before weighting
-     * @param  bool       $usesStandarPotensi divide by 5 before weighting
-     * @param  float|null $standar         required when $usesStandarMsk is true
+     * @param  float  $bobot  percentage weight (0-100)
+     * @param  bool  $usesStandarMsk  divide by standar before weighting
+     * @param  bool  $usesStandarPotensi  divide by 5 before weighting
+     * @param  float|null  $standar  required when $usesStandarMsk is true
      */
     public function computeHasil(
         float $nilai,
@@ -55,6 +55,7 @@ class PenilaianSyncService
     ): float {
         if ($usesStandarMsk) {
             $standar = $standar ?? 0.0;
+
             return $standar > 0 ? ((($nilai < $standar) ? $nilai : $standar) / $standar) * 100.0 * ($bobot / 100.0) : 0.0;
         }
 
@@ -73,8 +74,8 @@ class PenilaianSyncService
      * Derive the nilai for "Tingkat Pendidikan Formal" from pegawai JSON
      * by matching the employee's education level against instrumen scoring rules.
      *
-     * @param  mixed $pegawaiJson raw value from Pegawai::$json
-     * @param  \Illuminate\Support\Collection $instrumens
+     * @param  mixed  $pegawaiJson  raw value from Pegawai::$json
+     * @param  \Illuminate\Support\Collection  $instrumens
      */
     public function getNilaiTingkatPendidikanFormal($pegawaiJson, $instrumens): ?float
     {
@@ -82,7 +83,7 @@ class PenilaianSyncService
             ?? data_get($pegawaiJson, 'tk_pendidikan_terakhir');
 
         $normEdu = '';
-        if (!empty($edu)) {
+        if (! empty($edu)) {
             $normEdu = strtolower(trim((string) $edu));
             $normEdu = preg_replace('/[\.\-\s]+/', '', $normEdu);
         }
@@ -102,9 +103,13 @@ class PenilaianSyncService
                 $level = 'SLTA';
             } else {
                 // digit fallback
-                if (strpos($normEdu, '3') !== false) $level = 'S3';
-                elseif (strpos($normEdu, '2') !== false) $level = 'S2';
-                elseif (strpos($normEdu, '1') !== false || strpos($normEdu, 'd4') !== false) $level = 'S1/D4';
+                if (strpos($normEdu, '3') !== false) {
+                    $level = 'S3';
+                } elseif (strpos($normEdu, '2') !== false) {
+                    $level = 'S2';
+                } elseif (strpos($normEdu, '1') !== false || strpos($normEdu, 'd4') !== false) {
+                    $level = 'S1/D4';
+                }
             }
         }
 
@@ -113,7 +118,7 @@ class PenilaianSyncService
         foreach ($instrumens as $ins) {
             $text = strtolower($ins->instrumen ?? '');
             $skor = (float) $ins->skor;
-            $t    = preg_replace('/[\.\-\s]+/', '', $text);
+            $t = preg_replace('/[\.\-\s]+/', '', $text);
 
             if (stripos($t, 's3') !== false || stripos($text, 'strata3') !== false) {
                 $mapping['S3'] = $skor;
@@ -167,37 +172,41 @@ class PenilaianSyncService
      * Raw records are cached to pegawai.riwayat_skp; on API failure the cached value is used.
      * Returns null when the API call fails, the cache is empty, or the field is absent.
      *
-     * @param  string  $nip
-     * @param  Pegawai $pegawai  used to read/write the DB cache
+     * @param  Pegawai  $pegawai  used to read/write the DB cache
      */
     public function fetchKuadranKinerjaSKP(string $nip, Pegawai $pegawai): ?string
     {
         $baseUrl = rtrim(env('OKK_API_BASE_URL', 'https://okk.dpd.go.id/dpd-portal/openapi/talenta/rw'), '/');
-        $token   = env('OKK_API_TOKEN', '');
+        $token = env('OKK_API_TOKEN', '');
 
         $resolveKuadran = static function (?array $records): ?string {
-            if (empty($records)) return null;
-            usort($records, fn($a, $b) => (int) ($b['tahun'] ?? 0) - (int) ($a['tahun'] ?? 0));
+            if (empty($records)) {
+                return null;
+            }
+            usort($records, fn ($a, $b) => (int) ($b['tahun'] ?? 0) - (int) ($a['tahun'] ?? 0));
             $latest = $records[0];
-            return !empty($latest['kuadranKinerja']) ? (string) $latest['kuadranKinerja'] : null;
+
+            return ! empty($latest['kuadranKinerja']) ? (string) $latest['kuadranKinerja'] : null;
         };
 
         try {
             $response = Http::withHeaders([
-                'app-token'    => $token,
+                'app-token' => $token,
                 'Content-Type' => 'application/json',
             ])->timeout(30)->get("{$baseUrl}/rw-skp22/{$nip}");
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning("SKP API non-success for NIP {$nip}", ['status' => $response->status()]);
+
                 return $resolveKuadran(is_array($pegawai->riwayat_skp) ? $pegawai->riwayat_skp : null);
             }
 
-            $body    = $response->json();
+            $body = $response->json();
             $records = data_get($body, 'data.data') ?? [];
 
-            if (!is_array($records)) {
+            if (! is_array($records)) {
                 Log::warning("SKP API: unexpected payload for NIP {$nip}", ['body' => $body]);
+
                 return $resolveKuadran(is_array($pegawai->riwayat_skp) ? $pegawai->riwayat_skp : null);
             }
 
@@ -209,9 +218,11 @@ class PenilaianSyncService
             if ($kuadran === null) {
                 Log::warning("SKP API: kuadranKinerja not found for NIP {$nip}", ['body' => $body]);
             }
+
             return $kuadran;
         } catch (\Exception $e) {
-            Log::error("SKP API error for NIP {$nip}: " . $e->getMessage());
+            Log::error("SKP API error for NIP {$nip}: ".$e->getMessage());
+
             return $resolveKuadran(is_array($pegawai->riwayat_skp) ? $pegawai->riwayat_skp : null);
         } finally {
             $this->recordApiHitProgress('SKP API', $nip);
@@ -231,8 +242,8 @@ class PenilaianSyncService
      * Matching is done case-insensitively by checking if the instrumen text contains
      * the normalised kuadranKinerja (or vice-versa).
      *
-     * @param  string|null $kuadranKinerja  value from fetchKuadranKinerjaSKP()
-     * @param  \Illuminate\Support\Collection $instrumens
+     * @param  string|null  $kuadranKinerja  value from fetchKuadranKinerjaSKP()
+     * @param  \Illuminate\Support\Collection  $instrumens
      */
     public function getNilaiSKPFromKuadran(?string $kuadranKinerja, $instrumens): ?float
     {
@@ -251,6 +262,7 @@ class PenilaianSyncService
             $instrNorm = trim(preg_replace('/\s+/', ' ', preg_replace('/[^a-z0-9\s]+/', '', $instrText)));
             // Strip leading "a. ", "b. " etc.
             $instrCore = preg_replace('/^[a-z]\s+/', '', $instrNorm);
+
             return ['ins' => $ins, 'norm' => $instrNorm, 'core' => $instrCore];
         });
 
@@ -269,6 +281,7 @@ class PenilaianSyncService
         }
 
         Log::warning("SKP getNilaiSKPFromKuadran: no instrumen match for kuadranKinerja='{$kuadranKinerja}'");
+
         return null;
     }
 
@@ -288,25 +301,27 @@ class PenilaianSyncService
     public function fetchHukumanDisiplin(string $nip): ?array
     {
         $baseUrl = rtrim(env('OKK_API_BASE_URL', 'https://okk.dpd.go.id/dpd-portal/openapi/talenta/rw'), '/');
-        $token   = env('OKK_API_TOKEN', '');
+        $token = env('OKK_API_TOKEN', '');
 
         try {
             $response = Http::withHeaders([
-                'app-token'    => $token,
+                'app-token' => $token,
                 'Content-Type' => 'application/json',
             ])->timeout(30)->get("{$baseUrl}/rw-hukdis/{$nip}");
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning("HukDis API non-success for NIP {$nip}", ['status' => $response->status()]);
+
                 return null;
             }
 
-            $body    = $response->json();
+            $body = $response->json();
             $records = data_get($body, 'data.data') ?? [];
 
             return is_array($records) ? $records : [];
         } catch (\Exception $e) {
-            Log::error("HukDis API error for NIP {$nip}: " . $e->getMessage());
+            Log::error("HukDis API error for NIP {$nip}: ".$e->getMessage());
+
             return null;
         } finally {
             $this->recordApiHitProgress('Hukuman Disiplin API', $nip);
@@ -327,8 +342,8 @@ class PenilaianSyncService
      * Date format from API: "DD-MM-YYYY". When akhirHukumTanggal is absent it is
      * derived from hukumanTanggal + masaTahun (years) + masaBulan (months).
      *
-     * @param  array|null $hukumanRecords   raw records from fetchHukumanDisiplin()
-     * @param  \Illuminate\Support\Collection $instrumens
+     * @param  array|null  $hukumanRecords  raw records from fetchHukumanDisiplin()
+     * @param  \Illuminate\Support\Collection  $instrumens
      */
     public function getNilaiIntegritasMoralitas(?array $hukumanRecords, $instrumens): ?float
     {
@@ -336,12 +351,12 @@ class PenilaianSyncService
             return null;
         }
 
-        $today      = now()->startOfDay();
+        $today = now()->startOfDay();
         $fiveYrsAgo = now()->subYears(5)->startOfDay();
 
         /** Parse "DD-MM-YYYY" → Carbon or null */
         $parseDate = static function (?string $d): ?\Carbon\Carbon {
-            if (!$d) {
+            if (! $d) {
                 return null;
             }
             try {
@@ -352,9 +367,9 @@ class PenilaianSyncService
         };
 
         $sedangMenjalani = false;
-        $hasBerat        = false;
-        $hasSedang       = false;
-        $hasRingan       = false;
+        $hasBerat = false;
+        $hasSedang = false;
+        $hasRingan = false;
 
         if (is_array($hukumanRecords)) {
             foreach ($hukumanRecords as $record) {
@@ -363,8 +378,8 @@ class PenilaianSyncService
                 if ($akhirDate === null) {
                     $mulaiDate = $parseDate($record['hukumanTanggal'] ?? null);
                     if ($mulaiDate !== null) {
-                        $tahun     = (int) ($record['masaTahun'] ?? 0);
-                        $bulan     = (int) ($record['masaBulan'] ?? 0);
+                        $tahun = (int) ($record['masaTahun'] ?? 0);
+                        $bulan = (int) ($record['masaBulan'] ?? 0);
                         $akhirDate = $mulaiDate->copy()->addYears($tahun)->addMonths($bulan);
                     }
                 }
@@ -413,11 +428,11 @@ class PenilaianSyncService
 
             $matched = match ($category) {
                 'sedang menjalani' => str_contains($core, 'sedang menjalani'),
-                'berat'            => str_contains($core, 'berat') && !str_contains($core, 'menjalani'),
-                'sedang'           => str_contains($core, 'sedang') && !str_contains($core, 'menjalani') && str_contains($core, 'disiplin'),
-                'ringan'           => str_contains($core, 'ringan'),
-                'tidak pernah'     => str_contains($core, 'tidak pernah'),
-                default            => false,
+                'berat' => str_contains($core, 'berat') && ! str_contains($core, 'menjalani'),
+                'sedang' => str_contains($core, 'sedang') && ! str_contains($core, 'menjalani') && str_contains($core, 'disiplin'),
+                'ringan' => str_contains($core, 'ringan'),
+                'tidak pernah' => str_contains($core, 'tidak pernah'),
+                default => false,
             };
 
             if ($matched) {
@@ -426,6 +441,7 @@ class PenilaianSyncService
         }
 
         Log::warning("IntegritasMoralitas: no instrumen match for category='{$category}'");
+
         return null;
     }
 
@@ -440,31 +456,32 @@ class PenilaianSyncService
      *
      * Endpoint: GET {OKK_API_BASE_URL}/rw-jabatan/{nip}
      *
-     * @param  string  $nip
-     * @param  Pegawai $pegawai  used to read/write the DB cache
-     * @return array|null  raw records array, or null if both API and cache are unavailable
+     * @param  Pegawai  $pegawai  used to read/write the DB cache
+     * @return array|null raw records array, or null if both API and cache are unavailable
      */
     public function fetchRiwayatJabatan(string $nip, Pegawai $pegawai): ?array
     {
         $baseUrl = rtrim(env('OKK_API_BASE_URL', 'https://okk.dpd.go.id/dpd-portal/openapi/talenta/rw'), '/');
-        $token   = env('OKK_API_TOKEN', '');
+        $token = env('OKK_API_TOKEN', '');
 
         try {
             $response = Http::withHeaders([
-                'app-token'    => $token,
+                'app-token' => $token,
                 'Content-Type' => 'application/json',
             ])->timeout(30)->get("{$baseUrl}/rw-jabatan/{$nip}");
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning("RiwayatJabatan API non-success for NIP {$nip}", ['status' => $response->status()]);
+
                 return is_array($pegawai->riwayat_jabatan) ? $pegawai->riwayat_jabatan : null;
             }
 
-            $body    = $response->json();
+            $body = $response->json();
             $records = data_get($body, 'data.data') ?? [];
 
-            if (!is_array($records)) {
+            if (! is_array($records)) {
                 Log::warning("RiwayatJabatan API: unexpected payload for NIP {$nip}", ['body' => $body]);
+
                 return is_array($pegawai->riwayat_jabatan) ? $pegawai->riwayat_jabatan : null;
             }
 
@@ -474,7 +491,8 @@ class PenilaianSyncService
 
             return $records;
         } catch (\Exception $e) {
-            Log::error("RiwayatJabatan API error for NIP {$nip}: " . $e->getMessage());
+            Log::error("RiwayatJabatan API error for NIP {$nip}: ".$e->getMessage());
+
             return is_array($pegawai->riwayat_jabatan) ? $pegawai->riwayat_jabatan : null;
         } finally {
             $this->recordApiHitProgress('Riwayat Jabatan API', $nip);
@@ -499,9 +517,7 @@ class PenilaianSyncService
      *  3. Calculate duration from that tmtJabatan to today.
      *  4. Match against instrumen scoring rules.
      *
-     * @param  array|null $riwayatJabatan
-     * @param  \Illuminate\Support\Collection $instrumens
-     * @return float|null
+     * @param  \Illuminate\Support\Collection  $instrumens
      */
     public function getNilaiLamaJabatan(?array $riwayatJabatan, $instrumens): ?float
     {
@@ -514,13 +530,20 @@ class PenilaianSyncService
         usort($sorted, function ($a, $b) {
             $ca = $this->parseRiwayatDate($a['createdAt'] ?? null) ?? $this->parseRiwayatDate($a['tmtJabatan'] ?? null);
             $cb = $this->parseRiwayatDate($b['createdAt'] ?? null) ?? $this->parseRiwayatDate($b['tmtJabatan'] ?? null);
-            if (!$ca && !$cb) return 0;
-            if (!$ca) return 1;
-            if (!$cb) return -1;
+            if (! $ca && ! $cb) {
+                return 0;
+            }
+            if (! $ca) {
+                return 1;
+            }
+            if (! $cb) {
+                return -1;
+            }
+
             return $cb->gt($ca) ? 1 : ($cb->lt($ca) ? -1 : 0);
         });
 
-        $latest      = $sorted[0];
+        $latest = $sorted[0];
         $jenisJabatan = (string) ($latest['jenisJabatan'] ?? '');
 
         /**
@@ -544,6 +567,7 @@ class PenilaianSyncService
                     return $kw;
                 }
             }
+
             return null;
         };
 
@@ -599,7 +623,7 @@ class PenilaianSyncService
                     }
 
                     // Jika eselon tidak cocok dan bukan jabatan khusus, skip
-                    if ($recordEselon !== $targetEselon && !$isSpecialMatch) {
+                    if ($recordEselon !== $targetEselon && ! $isSpecialMatch) {
                         continue;
                     }
 
@@ -617,9 +641,13 @@ class PenilaianSyncService
                 $earliestTmt = $this->parseRiwayatDate($latest['tmtJabatan'] ?? null);
             } else {
                 foreach ($riwayatJabatan as $record) {
-                    if ((string) ($record['jenisJabatan'] ?? '') !== '2') continue;
+                    if ((string) ($record['jenisJabatan'] ?? '') !== '2') {
+                        continue;
+                    }
                     $recordJenjang = $extractFungsionalJenjang((string) ($record['jabatanFungsionalNama'] ?? ''));
-                    if ($recordJenjang !== $jenjang) continue;
+                    if ($recordJenjang !== $jenjang) {
+                        continue;
+                    }
                     $tmt = $this->parseRiwayatDate($record['tmtJabatan'] ?? null);
                     if ($tmt && ($earliestTmt === null || $tmt->lt($earliestTmt))) {
                         $earliestTmt = $tmt;
@@ -629,7 +657,9 @@ class PenilaianSyncService
         } elseif ($jenisJabatan === '4') {
             // Pimpinan Tinggi: group all jenisJabatan=4 records
             foreach ($riwayatJabatan as $record) {
-                if ((string) ($record['jenisJabatan'] ?? '') !== '4') continue;
+                if ((string) ($record['jenisJabatan'] ?? '') !== '4') {
+                    continue;
+                }
                 $tmt = $this->parseRiwayatDate($record['tmtJabatan'] ?? null);
                 if ($tmt && ($earliestTmt === null || $tmt->lt($earliestTmt))) {
                     $earliestTmt = $tmt;
@@ -641,7 +671,8 @@ class PenilaianSyncService
         }
 
         if ($earliestTmt === null) {
-            Log::warning("LamaJabatan: could not determine tmtJabatan from riwayat");
+            Log::warning('LamaJabatan: could not determine tmtJabatan from riwayat');
+
             return null;
         }
 
@@ -655,17 +686,19 @@ class PenilaianSyncService
         // First, build a list of (minYears, maxYears|null, skor) from instrumens.
         $tiers = [];
         foreach ($instrumens as $ins) {
-            $text  = strtolower($ins->instrumen ?? '');
-            $skor  = (float) $ins->skor;
+            $text = strtolower($ins->instrumen ?? '');
+            $skor = (float) $ins->skor;
 
             // "5 tahun ke atas" / "5 tahun keatas" pattern
             if (preg_match('/(\d+)\s*tahun\s*ke\s*atas/u', $text, $m)) {
                 $tiers[] = ['min' => (int) $m[1], 'max' => PHP_INT_MAX, 'skor' => $skor];
+
                 continue;
             }
             // "X s.d Y tahun" / "X sd Y tahun" / "X - Y tahun" pattern
             if (preg_match('/(\d+)\s*(?:s\.?\s*d\.?|sd|sampai|hingga|-)\s*(\d+)\s*tahun/u', $text, $m)) {
                 $tiers[] = ['min' => (int) $m[1], 'max' => (int) $m[2], 'skor' => $skor];
+
                 continue;
             }
             // "X tahun" generic (treat as >= X)
@@ -675,7 +708,7 @@ class PenilaianSyncService
         }
 
         // Sort tiers descending by min so the highest qualifying tier wins
-        usort($tiers, fn($a, $b) => $b['min'] - $a['min']);
+        usort($tiers, fn ($a, $b) => $b['min'] - $a['min']);
 
         foreach ($tiers as $tier) {
             if ($yearsInPosition >= $tier['min'] && $yearsInPosition <= $tier['max']) {
@@ -684,6 +717,7 @@ class PenilaianSyncService
         }
 
         Log::warning("LamaJabatan: no instrumen tier matched for yearsInPosition={$yearsInPosition}");
+
         return null;
     }
 
@@ -703,9 +737,7 @@ class PenilaianSyncService
      *
      * Priority: lintas instansi > lintas unit kerja > satu unit kerja.
      *
-     * @param  array|null $riwayatJabatan
-     * @param  \Illuminate\Support\Collection $instrumens
-     * @return float|null
+     * @param  \Illuminate\Support\Collection  $instrumens
      */
     public function getNilaiKeragamanRiwayatJabatan(?array $riwayatJabatan, $instrumens): ?float
     {
@@ -714,17 +746,17 @@ class PenilaianSyncService
         }
 
         $satuanKerjas = array_unique(array_filter(array_map(
-            fn($r) => strtolower(trim((string) ($r['satuanKerjaNama'] ?? ''))),
+            fn ($r) => strtolower(trim((string) ($r['satuanKerjaNama'] ?? ''))),
             $riwayatJabatan
         )));
 
         $unorNamas = array_unique(array_filter(array_map(
-            fn($r) => strtolower(trim((string) ($r['unorNama'] ?? ''))),
+            fn ($r) => strtolower(trim((string) ($r['unorNama'] ?? ''))),
             $riwayatJabatan
         )));
 
-        $lintasInstansi   = count($satuanKerjas) > 1;
-        $lintasUnitKerja  = count($unorNamas) > 1;
+        $lintasInstansi = count($satuanKerjas) > 1;
+        $lintasUnitKerja = count($unorNamas) > 1;
 
         if ($lintasInstansi) {
             $category = 'instansi';
@@ -739,10 +771,10 @@ class PenilaianSyncService
             $core = trim(preg_replace('/^[a-z][.\)]\s*/u', '', $text));
 
             $matched = match ($category) {
-                'instansi'    => str_contains($core, 'instansi'),
-                'unit kerja'  => str_contains($core, 'unit kerja') && !str_contains($core, 'instansi') && !str_contains($core, '1 unit'),
+                'instansi' => str_contains($core, 'instansi'),
+                'unit kerja' => str_contains($core, 'unit kerja') && ! str_contains($core, 'instansi') && ! str_contains($core, '1 unit'),
                 '1 unit kerja' => str_contains($core, '1 unit') || (str_contains($core, 'unit kerja') && str_contains($core, 'hanya')),
-                default       => false,
+                default => false,
             };
 
             if ($matched) {
@@ -751,6 +783,7 @@ class PenilaianSyncService
         }
 
         Log::warning("KeragamanRiwayatJabatan: no instrumen match for category='{$category}'");
+
         return null;
     }
 
@@ -784,7 +817,7 @@ class PenilaianSyncService
         }
 
         $pengajuan = $query->first();
-        if (!$pengajuan || !$pengajuan->instrumen) {
+        if (! $pengajuan || ! $pengajuan->instrumen) {
             return 0.0;
         }
 
@@ -819,7 +852,7 @@ class PenilaianSyncService
 
     private function parseRiwayatDate(?string $value): ?\Carbon\Carbon
     {
-        if (!$value) {
+        if (! $value) {
             return null;
         }
 
@@ -849,13 +882,14 @@ class PenilaianSyncService
     private function formatRiwayatDate(?string $value): ?string
     {
         $date = $this->parseRiwayatDate($value);
+
         return $date ? $date->format('d-m-Y') : null;
     }
 
     private function fetchRiwayatPengembanganKompetensiSeminar(string $nip): ?array
     {
         $baseUrl = rtrim(env('CMB_API_URL', 'http://localhost:8000/api'), '/');
-        $token   = env('CMB_API_TOKEN', '');
+        $token = env('CMB_API_TOKEN', '');
 
         try {
             $headers = $this->buildHeaders($token);
@@ -866,22 +900,24 @@ class PenilaianSyncService
                 ])
                 ->get("{$baseUrl}/seminar/nip/{$nip}");
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning("Seminar API non-success for NIP {$nip}", ['status' => $response->status()]);
+
                 return null;
             }
 
-            $body     = $response->json();
-            $records  = data_get($body, 'data') ?? [];
+            $body = $response->json();
+            $records = data_get($body, 'data') ?? [];
 
-            if (!is_array($records)) {
+            if (! is_array($records)) {
                 Log::warning("Seminar API: unexpected payload for NIP {$nip}", ['body' => $body]);
+
                 return null;
             }
 
             $formatted = [];
             foreach ($records as $record) {
-                if (!is_array($record)) {
+                if (! is_array($record)) {
                     continue;
                 }
 
@@ -889,18 +925,18 @@ class PenilaianSyncService
                 $path = [];
                 if ($sertifikatUrl !== '') {
                     $path['seminar'] = [
-                        'slug'    => 'seminar',
-                        'dok_id'  => (string) ($record['id'] ?? ''),
-                        'object'  => $sertifikatUrl,
+                        'slug' => 'seminar',
+                        'dok_id' => (string) ($record['id'] ?? ''),
+                        'object' => $sertifikatUrl,
                         'dok_uri' => $sertifikatUrl,
                         'dok_nama' => 'Dok Sertifikat Seminar',
                     ];
                 }
 
-                $tanggalMulai  = $this->formatRiwayatDate($record['tanggal_mulai'] ?? null);
+                $tanggalMulai = $this->formatRiwayatDate($record['tanggal_mulai'] ?? null);
                 $tanggalSelesai = $this->formatRiwayatDate($record['tanggal_selesai'] ?? null);
-                $approvedAt    = $this->formatRiwayatDate($record['approved_at'] ?? null);
-                $tahunKursus   = $this->parseRiwayatDate($record['tanggal_selesai'] ?? $record['tanggal_mulai'] ?? null)?->format('Y');
+                $approvedAt = $this->formatRiwayatDate($record['approved_at'] ?? null);
+                $tahunKursus = $this->parseRiwayatDate($record['tanggal_selesai'] ?? $record['tanggal_mulai'] ?? null)?->format('Y');
 
                 $formatted[] = [
                     'id' => $record['id'] ?? null,
@@ -930,7 +966,8 @@ class PenilaianSyncService
 
             return $formatted;
         } catch (\Exception $e) {
-            Log::error("Seminar API error for NIP {$nip}: " . $e->getMessage());
+            Log::error("Seminar API error for NIP {$nip}: ".$e->getMessage());
+
             return null;
         }
     }
@@ -938,7 +975,7 @@ class PenilaianSyncService
     private function fetchRiwayatPengembanganKompetensiKegiatanPegawai(string $nip): ?array
     {
         $baseUrl = rtrim(env('NUSA_API_URL', 'https://nusa-be.dpd.go.id/api'), '/');
-        $token   = env('NUSA_API_TOKEN', '');
+        $token = env('NUSA_API_TOKEN', '');
 
         try {
             $headers = $this->buildHeaders($token);
@@ -948,27 +985,29 @@ class PenilaianSyncService
                     'verify' => false,
                 ])
                 ->get("{$baseUrl}/kegiatan-pegawai", [
-                    'nip'             => $nip,
+                    'nip' => $nip,
                     'with_pagination' => 'false',
-                    'with_isi_form'   => 'false',
+                    'with_isi_form' => 'false',
                 ]);
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning("KegiatanPegawai API non-success for NIP {$nip}", ['status' => $response->status()]);
+
                 return null;
             }
 
-            $body    = $response->json();
+            $body = $response->json();
             $records = data_get($body, 'data') ?? [];
 
-            if (!is_array($records)) {
+            if (! is_array($records)) {
                 Log::warning("KegiatanPegawai API: unexpected payload for NIP {$nip}", ['body' => $body]);
+
                 return null;
             }
 
             $formatted = [];
             foreach ($records as $record) {
-                if (!is_array($record)) {
+                if (! is_array($record)) {
                     continue;
                 }
 
@@ -976,48 +1015,49 @@ class PenilaianSyncService
                 $path = [];
                 if ($sertifikatUrl !== '') {
                     $path['kegiatan_pegawai'] = [
-                        'slug'     => 'kegiatan_pegawai',
-                        'dok_id'   => (string) ($record['id'] ?? ''),
-                        'object'   => $sertifikatUrl,
-                        'dok_uri'  => $sertifikatUrl,
+                        'slug' => 'kegiatan_pegawai',
+                        'dok_id' => (string) ($record['id'] ?? ''),
+                        'object' => $sertifikatUrl,
+                        'dok_uri' => $sertifikatUrl,
                         'dok_nama' => 'Dok Sertifikat Kegiatan Pegawai',
                     ];
                 }
 
-                $tanggalMulai   = $this->formatRiwayatDate(data_get($record, 'kegiatan.tanggal'));
+                $tanggalMulai = $this->formatRiwayatDate(data_get($record, 'kegiatan.tanggal'));
                 $tanggalSelesai = $this->formatRiwayatDate(data_get($record, 'kegiatan.tanggal'));
-                $approvedAt     = $this->formatRiwayatDate($record['signed_at'] ?? $record['created_at'] ?? null);
-                $tahunKursus    = $this->parseRiwayatDate(data_get($record, 'kegiatan.tanggal'))?->format('Y');
+                $approvedAt = $this->formatRiwayatDate($record['signed_at'] ?? $record['created_at'] ?? null);
+                $tahunKursus = $this->parseRiwayatDate(data_get($record, 'kegiatan.tanggal'))?->format('Y');
 
                 $formatted[] = [
-                    'id'                     => $record['id'] ?? null,
-                    'path'                   => $path,
-                    'idPns'                  => null,
-                    'nipBaru'                => (string) ($record['nip'] ?? ''),
-                    'nipLama'                => '',
-                    'createdAt'              => $approvedAt,
-                    'jumlahJam'              => (float) ($record['jumlah_jp'] ?? 0),
-                    'updatedAt'              => $approvedAt,
-                    'namaKursus'             => (string) (data_get($record, 'kegiatan.nama_kegiatan') . ": " . data_get($record, 'kegiatan.judul_tema') ?? ''),
-                    'tahunKursus'            => $tahunKursus,
-                    'noSertipikat'           => (string) ($record['nomor_sertifikat'] ?? ''),
-                    'jenisDiklatId'          => null,
-                    'jenisKursusId'          => null,
-                    'tanggalKursus'          => $tanggalMulai,
-                    'jenisKursusNama'        => (string) (data_get($record, 'kegiatan.jenis_kegiatan') ?? 'Webinar'),
-                    'tanggalSelesaiKursus'   => $tanggalSelesai,
-                    'jenisKursusSertifikat'  => (string) (data_get($record, 'kegiatan.jenis_kegiatan') ?? 'Webinar'),
+                    'id' => $record['id'] ?? null,
+                    'path' => $path,
+                    'idPns' => null,
+                    'nipBaru' => (string) ($record['nip'] ?? ''),
+                    'nipLama' => '',
+                    'createdAt' => $approvedAt,
+                    'jumlahJam' => (float) ($record['jumlah_jp'] ?? 0),
+                    'updatedAt' => $approvedAt,
+                    'namaKursus' => (string) (data_get($record, 'kegiatan.nama_kegiatan').': '.data_get($record, 'kegiatan.judul_tema') ?? ''),
+                    'tahunKursus' => $tahunKursus,
+                    'noSertipikat' => (string) ($record['nomor_sertifikat'] ?? ''),
+                    'jenisDiklatId' => null,
+                    'jenisKursusId' => null,
+                    'tanggalKursus' => $tanggalMulai,
+                    'jenisKursusNama' => (string) (data_get($record, 'kegiatan.jenis_kegiatan') ?? 'Webinar'),
+                    'tanggalSelesaiKursus' => $tanggalSelesai,
+                    'jenisKursusSertifikat' => (string) (data_get($record, 'kegiatan.jenis_kegiatan') ?? 'Webinar'),
                     'institusiPenyelenggara' => (string) (data_get($record, 'kegiatan.penyelenggara') ?? 'Sekretariat Jenderal DPD RI'),
-                    'seminarLokasi'          => data_get($record, 'kegiatan.tempat'),
-                    'seminarDeskripsi'       => data_get($record, 'kegiatan.deskripsi'),
-                    'seminarRumpunJabatan'   => null,
-                    'seminarSertifikat'      => $sertifikatUrl,
+                    'seminarLokasi' => data_get($record, 'kegiatan.tempat'),
+                    'seminarDeskripsi' => data_get($record, 'kegiatan.deskripsi'),
+                    'seminarRumpunJabatan' => null,
+                    'seminarSertifikat' => $sertifikatUrl,
                 ];
             }
 
             return $formatted;
         } catch (\Exception $e) {
-            Log::error("KegiatanPegawai API error for NIP {$nip}: " . $e->getMessage());
+            Log::error("KegiatanPegawai API error for NIP {$nip}: ".$e->getMessage());
+
             return null;
         }
     }
@@ -1026,29 +1066,29 @@ class PenilaianSyncService
     {
         $noSertipikat = trim((string) ($record['noSertipikat'] ?? ''));
         if ($noSertipikat !== '' && $noSertipikat !== '-') {
-            return 'sertifikat:' . mb_strtolower($noSertipikat);
+            return 'sertifikat:'.mb_strtolower($noSertipikat);
         }
 
         $id = trim((string) ($record['seminarId'] ?? $record['id'] ?? ''));
         if ($id !== '') {
-            return 'id:' . mb_strtolower($id);
+            return 'id:'.mb_strtolower($id);
         }
 
         $nama = trim((string) ($record['namaKursus'] ?? ''));
         $tanggal = trim((string) ($record['tanggalSelesaiKursus'] ?? $record['tanggalKursus'] ?? ''));
         $institusi = trim((string) ($record['institusiPenyelenggara'] ?? ''));
 
-        return 'hash:' . md5(mb_strtolower($nama . '|' . $tanggal . '|' . $institusi));
+        return 'hash:'.md5(mb_strtolower($nama.'|'.$tanggal.'|'.$institusi));
     }
 
     private function mergeRiwayatPengembanganKompetensiRecords(array ...$recordSets): array
     {
         $merged = [];
-        $seen   = [];
+        $seen = [];
 
         foreach ($recordSets as $records) {
             foreach ($records as $record) {
-                if (!is_array($record)) {
+                if (! is_array($record)) {
                     continue;
                 }
 
@@ -1074,8 +1114,8 @@ class PenilaianSyncService
                     ->where('id', $latest->id)
                     ->update([
                         'completed_api_calls' => DB::raw('completed_api_calls + 1'),
-                        'last_api_name'       => "{$apiName} (NIP {$nip})",
-                        'updated_at'          => now(),
+                        'last_api_name' => "{$apiName} (NIP {$nip})",
+                        'updated_at' => now(),
                     ]);
             }
         } catch (\Throwable $e) {
@@ -1098,12 +1138,13 @@ class PenilaianSyncService
         $pengembanganRecords = [];
 
         foreach ($records as $record) {
-            if (!is_array($record)) {
+            if (! is_array($record)) {
                 continue;
             }
 
             if ($this->isDiklatFungsionalRecord($record)) {
                 $diklatFungsionalRecords[] = $record;
+
                 continue;
             }
 
@@ -1111,7 +1152,7 @@ class PenilaianSyncService
         }
 
         $pegawai->riwayat_pengembangan_kompetensi = $pengembanganRecords;
-        if (!empty($diklatFungsionalRecords)) {
+        if (! empty($diklatFungsionalRecords)) {
             $pegawai->riwayat_diklat = $this->mergeRiwayatPengembanganKompetensiRecords(
                 $existingDiklatRecords,
                 $diklatFungsionalRecords
@@ -1132,14 +1173,13 @@ class PenilaianSyncService
      * pegawai.riwayat_pengembangan_kompetensi as a DB cache.
      * On failure the cached value is returned instead.
      *
-     * @param  string  $nip
-     * @param  Pegawai $pegawai  used to read/write the DB cache
-     * @return array|null  raw records array, or null if both API and cache are unavailable
+     * @param  Pegawai  $pegawai  used to read/write the DB cache
+     * @return array|null raw records array, or null if both API and cache are unavailable
      */
     public function fetchRiwayatPengembanganKompetensi(string $nip, Pegawai $pegawai): ?array
     {
         $baseUrl = rtrim(env('OKK_API_BASE_URL', 'https://okk.dpd.go.id/dpd-portal/openapi/talenta/rw'), '/');
-        $token   = env('OKK_API_TOKEN', '');
+        $token = env('OKK_API_TOKEN', '');
 
         $kursusRecords = null;
         $seminarRecords = null;
@@ -1147,28 +1187,29 @@ class PenilaianSyncService
 
         try {
             $response = Http::withHeaders([
-                'app-token'    => $token,
+                'app-token' => $token,
                 'Content-Type' => 'application/json',
             ])->timeout(30)->get("{$baseUrl}/rw-kursus/{$nip}");
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning("PengembanganKompetensi API non-success for NIP {$nip}", ['status' => $response->status()]);
+
                 return is_array($pegawai->riwayat_pengembangan_kompetensi)
                     ? $pegawai->riwayat_pengembangan_kompetensi
                     : null;
             }
 
-            $body    = $response->json();
+            $body = $response->json();
             $records = data_get($body, 'data.data') ?? [];
 
-            if (!is_array($records)) {
+            if (! is_array($records)) {
                 Log::warning("PengembanganKompetensi API: unexpected payload for NIP {$nip}", ['body' => $body]);
                 $kursusRecords = null;
             } else {
                 $kursusRecords = $records;
             }
         } catch (\Exception $e) {
-            Log::error("PengembanganKompetensi API error for NIP {$nip}: " . $e->getMessage());
+            Log::error("PengembanganKompetensi API error for NIP {$nip}: ".$e->getMessage());
             $kursusRecords = null;
         } finally {
             $this->recordApiHitProgress('Riwayat Kursus API', $nip);
@@ -1178,7 +1219,7 @@ class PenilaianSyncService
         $kegiatanPegawaiRecords = $this->fetchRiwayatPengembanganKompetensiKegiatanPegawai($nip);
 
         if ($kursusRecords === null && $seminarRecords === null && $kegiatanPegawaiRecords === null) {
-            if (!is_array($pegawai->riwayat_pengembangan_kompetensi)) {
+            if (! is_array($pegawai->riwayat_pengembangan_kompetensi)) {
                 return null;
             }
 
@@ -1222,9 +1263,8 @@ class PenilaianSyncService
      * A record is counted when its tanggalSelesaiKursus (falling back to
      * tanggalKursus) can be parsed and falls within the last 3 years.
      *
-     * @param  array|null $riwayat   raw records from fetchRiwayatPengembanganKompetensi()
-     * @param  \Illuminate\Support\Collection $instrumens
-     * @return float|null
+     * @param  array|null  $riwayat  raw records from fetchRiwayatPengembanganKompetensi()
+     * @param  \Illuminate\Support\Collection  $instrumens
      */
     public function getNilaiPengembanganKompetensi(?array $riwayat, $instrumens): ?float
     {
@@ -1234,7 +1274,9 @@ class PenilaianSyncService
 
         /** Parse "DD-MM-YYYY" → Carbon or null */
         $parseDate = static function (?string $d): ?\Carbon\Carbon {
-            if (!$d) return null;
+            if (! $d) {
+                return null;
+            }
             try {
                 return \Carbon\Carbon::createFromFormat('d-m-Y', trim($d))->startOfDay();
             } catch (\Exception $e) {
@@ -1243,12 +1285,12 @@ class PenilaianSyncService
         };
 
         $threeYearsAgo = now()->subYears(3)->startOfDay();
-        $count         = 0;
+        $count = 0;
 
         if (is_array($riwayat)) {
             // Deduplicate by noSertipikat: if multiple records share the same
             // non-empty noSertipikat value, only the first occurrence is kept.
-            $seen      = [];
+            $seen = [];
             $dedupedRiwayat = [];
             foreach ($riwayat as $record) {
                 $noSert = trim((string) ($record['noSertipikat'] ?? ''));
@@ -1296,16 +1338,19 @@ class PenilaianSyncService
             // "N atau lebih" pattern
             if (preg_match('/(\d+)\s*kali\s*atau\s*lebih/u', $text, $m)) {
                 $tiers[] = ['min' => (int) $m[1], 'max' => PHP_INT_MAX, 'skor' => $skor];
+
                 continue;
             }
 
             // "N-M kali" or "N s.d M kali" or "N sd M kali"
             if (preg_match('/(\d+)\s*[-–]\s*(\d+)\s*kali/u', $text, $m)) {
                 $tiers[] = ['min' => (int) $m[1], 'max' => (int) $m[2], 'skor' => $skor];
+
                 continue;
             }
             if (preg_match('/(\d+)\s*(?:s\.?\s*d\.?|sd|sampai)\s*(\d+)\s*kali/u', $text, $m)) {
                 $tiers[] = ['min' => (int) $m[1], 'max' => (int) $m[2], 'skor' => $skor];
+
                 continue;
             }
 
@@ -1317,7 +1362,7 @@ class PenilaianSyncService
 
         // Sort descending by min so the highest-threshold tier is checked first.
         // This ensures "8 atau lebih" wins over "6-8" when count == 8.
-        usort($tiers, fn($a, $b) => $b['min'] - $a['min']);
+        usort($tiers, fn ($a, $b) => $b['min'] - $a['min']);
 
         foreach ($tiers as $tier) {
             if ($count >= $tier['min'] && $count <= $tier['max']) {
@@ -1326,6 +1371,7 @@ class PenilaianSyncService
         }
 
         Log::warning("PengembanganKompetensi: no instrumen tier matched for count={$count}");
+
         return null;
     }
 
@@ -1343,17 +1389,16 @@ class PenilaianSyncService
      * De-duplication: records sharing the same non-empty `nomor` are collapsed
      * to a single entry.
      *
-     * @param  string  $nip
-     * @param  Pegawai $pegawai  used to read/write the DB cache
-     * @return array|null  de-duplicated records, or null if both API and cache are unavailable
+     * @param  Pegawai  $pegawai  used to read/write the DB cache
+     * @return array|null de-duplicated records, or null if both API and cache are unavailable
      */
     public function fetchRiwayatDiklatStruktural(string $nip, Pegawai $pegawai): ?array
     {
         $baseUrl = rtrim(env('OKK_API_BASE_URL', 'https://okk.dpd.go.id/dpd-portal/openapi/talenta/rw'), '/');
-        $token   = env('OKK_API_TOKEN', '');
+        $token = env('OKK_API_TOKEN', '');
 
         $deduplicate = static function (array $records): array {
-            $seen    = [];
+            $seen = [];
             $cleaned = [];
             foreach ($records as $record) {
                 $nomor = trim((string) ($record['nomor'] ?? ''));
@@ -1365,25 +1410,28 @@ class PenilaianSyncService
                 }
                 $cleaned[] = $record;
             }
+
             return $cleaned;
         };
 
         try {
             $response = Http::withHeaders([
-                'app-token'    => $token,
+                'app-token' => $token,
                 'Content-Type' => 'application/json',
             ])->timeout(30)->get("{$baseUrl}/rw-diklat/{$nip}");
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning("DiklatStruktural API non-success for NIP {$nip}", ['status' => $response->status()]);
+
                 return is_array($pegawai->riwayat_diklat) ? $pegawai->riwayat_diklat : null;
             }
 
-            $body    = $response->json();
+            $body = $response->json();
             $records = data_get($body, 'data.data') ?? [];
 
-            if (!is_array($records)) {
+            if (! is_array($records)) {
                 Log::warning("DiklatStruktural API: unexpected payload for NIP {$nip}", ['body' => $body]);
+
                 return is_array($pegawai->riwayat_diklat) ? $pegawai->riwayat_diklat : null;
             }
 
@@ -1400,7 +1448,8 @@ class PenilaianSyncService
 
             return $records;
         } catch (\Exception $e) {
-            Log::error("DiklatStruktural API error for NIP {$nip}: " . $e->getMessage());
+            Log::error("DiklatStruktural API error for NIP {$nip}: ".$e->getMessage());
+
             return is_array($pegawai->riwayat_diklat) ? $pegawai->riwayat_diklat : null;
         } finally {
             $this->recordApiHitProgress('Diklat Struktural API', $nip);
@@ -1417,17 +1466,16 @@ class PenilaianSyncService
      * De-duplication: records sharing the same non-empty `noSertifikat` are
      * collapsed to a single entry.
      *
-     * @param  string  $nip
-     * @param  Pegawai $pegawai  used to read/write the DB cache
-     * @return array|null  de-duplicated records, or null if both API and cache are unavailable
+     * @param  Pegawai  $pegawai  used to read/write the DB cache
+     * @return array|null de-duplicated records, or null if both API and cache are unavailable
      */
     public function fetchRiwayatSertifikasi(string $nip, Pegawai $pegawai): ?array
     {
         $baseUrl = rtrim(env('OKK_API_BASE_URL', 'https://okk.dpd.go.id/dpd-portal/openapi/talenta/rw'), '/');
-        $token   = env('OKK_API_TOKEN', '');
+        $token = env('OKK_API_TOKEN', '');
 
         $deduplicate = static function (array $records): array {
-            $seen    = [];
+            $seen = [];
             $cleaned = [];
             foreach ($records as $record) {
                 $noSert = trim((string) ($record['noSertifikat'] ?? ''));
@@ -1439,25 +1487,28 @@ class PenilaianSyncService
                 }
                 $cleaned[] = $record;
             }
+
             return $cleaned;
         };
 
         try {
             $response = Http::withHeaders([
-                'app-token'    => $token,
+                'app-token' => $token,
                 'Content-Type' => 'application/json',
             ])->timeout(30)->get("{$baseUrl}/rw-sertifikasi/{$nip}");
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::warning("Sertifikasi API non-success for NIP {$nip}", ['status' => $response->status()]);
+
                 return is_array($pegawai->riwayat_sertifikasi) ? $pegawai->riwayat_sertifikasi : null;
             }
 
-            $body    = $response->json();
+            $body = $response->json();
             $records = data_get($body, 'data.data') ?? [];
 
-            if (!is_array($records)) {
+            if (! is_array($records)) {
                 Log::warning("Sertifikasi API: unexpected payload for NIP {$nip}", ['body' => $body]);
+
                 return is_array($pegawai->riwayat_sertifikasi) ? $pegawai->riwayat_sertifikasi : null;
             }
 
@@ -1469,7 +1520,8 @@ class PenilaianSyncService
 
             return $records;
         } catch (\Exception $e) {
-            Log::error("Sertifikasi API error for NIP {$nip}: " . $e->getMessage());
+            Log::error("Sertifikasi API error for NIP {$nip}: ".$e->getMessage());
+
             return is_array($pegawai->riwayat_sertifikasi) ? $pegawai->riwayat_sertifikasi : null;
         } finally {
             $this->recordApiHitProgress('Sertifikasi API', $nip);
@@ -1495,11 +1547,9 @@ class PenilaianSyncService
      *   "b. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 1-2 kali"
      *   "c. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 0 kali"
      *
-     * @param  array|null $riwayatDiklat       de-duplicated records from fetchRiwayatDiklatStruktural()
-     * @param  array|null $riwayatSertifikasi  de-duplicated records from fetchRiwayatSertifikasi()
-     * @param  \Illuminate\Support\Collection $instrumens
-     * @param  array|null $riwayatKursus
-     * @return float|null
+     * @param  array|null  $riwayatDiklat  de-duplicated records from fetchRiwayatDiklatStruktural()
+     * @param  array|null  $riwayatSertifikasi  de-duplicated records from fetchRiwayatSertifikasi()
+     * @param  \Illuminate\Support\Collection  $instrumens
      */
     public function getNilaiDiklatKepemimpinan(
         ?array $riwayatDiklat,
@@ -1513,7 +1563,9 @@ class PenilaianSyncService
 
         /** Parse "DD-MM-YYYY" → Carbon or null */
         $parseDate = static function (?string $d): ?\Carbon\Carbon {
-            if (!$d) return null;
+            if (! $d) {
+                return null;
+            }
             try {
                 return \Carbon\Carbon::createFromFormat('d-m-Y', trim($d))->startOfDay();
             } catch (\Exception $e) {
@@ -1525,7 +1577,7 @@ class PenilaianSyncService
         $diklatCount = 0;
         if (is_array($riwayatDiklat)) {
             foreach ($riwayatDiklat as $record) {
-                if (!is_array($record) || $this->isDiklatFungsionalRecord($record)) {
+                if (! is_array($record) || $this->isDiklatFungsionalRecord($record)) {
                     continue;
                 }
                 $diklatCount++;
@@ -1533,16 +1585,16 @@ class PenilaianSyncService
         }
 
         // Count sertifikasi records within the last 3 years (excluding diklat fungsional)
-        $threeYearsAgo    = now()->subYears(3)->startOfDay();
+        $threeYearsAgo = now()->subYears(3)->startOfDay();
         $sertifikasiCount = 0;
 
         if (is_array($riwayatSertifikasi)) {
             foreach ($riwayatSertifikasi as $record) {
-                if (!is_array($record) || $this->isDiklatFungsionalRecord($record)) {
+                if (! is_array($record) || $this->isDiklatFungsionalRecord($record)) {
                     continue;
                 }
                 $dateStr = $record['tanggalSertifikat'] ?? null;
-                $date    = $parseDate($dateStr);
+                $date = $parseDate($dateStr);
                 if ($date !== null && $date->greaterThanOrEqualTo($threeYearsAgo)) {
                     $sertifikasiCount++;
                 }
@@ -1570,7 +1622,7 @@ class PenilaianSyncService
 
         if (is_array($riwayatKursus)) {
             foreach ($riwayatKursus as $record) {
-                if (!is_array($record) || !$this->isDiklatFungsionalRecord($record)) {
+                if (! is_array($record) || ! $this->isDiklatFungsionalRecord($record)) {
                     continue;
                 }
 
@@ -1581,7 +1633,7 @@ class PenilaianSyncService
 
         if (is_array($riwayatDiklat)) {
             foreach ($riwayatDiklat as $record) {
-                if (!is_array($record) || !$this->isDiklatFungsionalRecord($record)) {
+                if (! is_array($record) || ! $this->isDiklatFungsionalRecord($record)) {
                     continue;
                 }
 
@@ -1592,7 +1644,7 @@ class PenilaianSyncService
 
         if (is_array($riwayatSertifikasi)) {
             foreach ($riwayatSertifikasi as $record) {
-                if (!is_array($record) || !$this->isDiklatFungsionalRecord($record)) {
+                if (! is_array($record) || ! $this->isDiklatFungsionalRecord($record)) {
                     continue;
                 }
 
@@ -1620,20 +1672,24 @@ class PenilaianSyncService
             // "N kali atau lebih" or "N atau lebih kali"
             if (preg_match('/(\d+)\s*kali\s*atau\s*lebih/u', $text, $m)) {
                 $tiers[] = ['min' => (int) $m[1], 'max' => PHP_INT_MAX, 'skor' => $skor];
+
                 continue;
             }
             if (preg_match('/(\d+)\s*atau\s*lebih\s*kali/u', $text, $m)) {
                 $tiers[] = ['min' => (int) $m[1], 'max' => PHP_INT_MAX, 'skor' => $skor];
+
                 continue;
             }
 
             // "N-M kali" or "N s.d M kali"
             if (preg_match('/(\d+)\s*[-–]\s*(\d+)\s*kali/u', $text, $m)) {
                 $tiers[] = ['min' => (int) $m[1], 'max' => (int) $m[2], 'skor' => $skor];
+
                 continue;
             }
             if (preg_match('/(\d+)\s*(?:s\.?\s*d\.?|sd|sampai)\s*(\d+)\s*kali/u', $text, $m)) {
                 $tiers[] = ['min' => (int) $m[1], 'max' => (int) $m[2], 'skor' => $skor];
+
                 continue;
             }
 
@@ -1644,7 +1700,7 @@ class PenilaianSyncService
         }
 
         // Sort descending by min so highest-threshold tier is checked first
-        usort($tiers, fn($a, $b) => $b['min'] - $a['min']);
+        usort($tiers, fn ($a, $b) => $b['min'] - $a['min']);
 
         foreach ($tiers as $tier) {
             if ($totalCount >= $tier['min'] && $totalCount <= $tier['max']) {
@@ -1653,6 +1709,7 @@ class PenilaianSyncService
         }
 
         Log::warning("DiklatKepemimpinan: no instrumen tier matched for totalCount={$totalCount}");
+
         return null;
     }
 
@@ -1663,14 +1720,14 @@ class PenilaianSyncService
     /**
      * Recalculate and upsert penilaian records for all (or specific) pegawai.
      *
-     * @param  array|null $filterNips  When provided, only pegawai with these NIPs are processed.
+     * @param  array|null  $filterNips  When provided, only pegawai with these NIPs are processed.
      * @return array{updated: int, errors: array}
      */
     public function syncPenilaian(?array $filterNips = null): array
     {
         set_time_limit(600);
 
-        $allSub     = SubIndikator::with('indikator')->get()->keyBy('id');
+        $allSub = SubIndikator::with('indikator')->get()->keyBy('id');
         $instrBySub = Instrumen::all()->groupBy('subindikator_id');
 
         // Build standar map [jenis_jabatan_id][subindikator_id] => standar
@@ -1680,14 +1737,14 @@ class PenilaianSyncService
         }
 
         // Classify subindikator ids
-        $masaIds        = [];
-        $skpIds         = [];
+        $masaIds = [];
+        $skpIds = [];
         $kualifikasiIds = [];
-        $integritasIds  = [];
+        $integritasIds = [];
         $lamaJabatanIds = [];
-        $keragamanIds   = [];
+        $keragamanIds = [];
         $pengembanganKompetensiIds = [];
-        $diklatIds      = [];
+        $diklatIds = [];
         $kesesuaianPendidikanIds = [];
         $penugasanTimKerjaIds = [];
         $penugasanNondefinitifIds = [];
@@ -1697,12 +1754,14 @@ class PenilaianSyncService
 
             if (stripos($name, 'masa kerja') !== false) {
                 $masaIds[] = $id;
+
                 continue;
             }
 
             // SKP: auto_sync flag AND name contains "Penilaian Kerja"
             if ($s->auto_sync && stripos($name, 'Penilaian Kerja') !== false) {
                 $skpIds[] = $id;
+
                 continue;
             }
 
@@ -1712,6 +1771,7 @@ class PenilaianSyncService
                 stripos($name, 'kualifikasi pendidikan') !== false
             ) {
                 $kualifikasiIds[] = $id;
+
                 continue;
             }
 
@@ -1723,24 +1783,28 @@ class PenilaianSyncService
                 )
             ) {
                 $integritasIds[] = $id;
+
                 continue;
             }
 
             // Lama Jabatan: auto_sync flag AND name matches
             if ($s->auto_sync && stripos($name, 'Lama Jabatan') !== false) {
                 $lamaJabatanIds[] = $id;
+
                 continue;
             }
 
             // Keragaman Riwayat Jabatan: auto_sync flag AND name matches
             if ($s->auto_sync && stripos($name, 'Keragaman Riwayat Jabatan') !== false) {
                 $keragamanIds[] = $id;
+
                 continue;
             }
 
             // Pengembangan Kompetensi: auto_sync flag AND name matches
             if ($s->auto_sync && stripos($name, 'Pengembangan Kompetensi') !== false) {
                 $pengembanganKompetensiIds[] = $id;
+
                 continue;
             }
 
@@ -1748,43 +1812,47 @@ class PenilaianSyncService
             if (
                 $s->auto_sync && (
                     stripos($name, 'Diklat Kepemimpinan') !== false ||
-                    stripos($name, 'Diklat Keahlian')     !== false ||
+                    stripos($name, 'Diklat Keahlian') !== false ||
                     stripos($name, 'Diklat Penjenjangan') !== false
                 )
             ) {
                 $diklatIds[] = $id;
+
                 continue;
             }
 
             // Kesesuaian Pendidikan dengan Jabatan Target: default value 50
             if (stripos($name, 'Kesesuaian Pendidikan dengan Jabatan Target') !== false) {
                 $kesesuaianPendidikanIds[] = $id;
+
                 continue;
             }
 
             if (stripos($name, 'Penugasan dalam Tim Kerja') !== false) {
                 $penugasanTimKerjaIds[] = $id;
+
                 continue;
             }
 
             if (stripos($name, 'Penugasan Dalam Jabatan Nondefinitif') !== false) {
                 $penugasanNondefinitifIds[] = $id;
+
                 continue;
             }
         }
 
         // Convert to hash sets for O(1) lookup
-        $masaSet        = array_flip($masaIds);
-        $skpSet         = array_flip($skpIds);
+        $masaSet = array_flip($masaIds);
+        $skpSet = array_flip($skpIds);
         $kualifikasiSet = array_flip($kualifikasiIds);
-        $integritasSet  = array_flip($integritasIds);
+        $integritasSet = array_flip($integritasIds);
         $lamaJabatanSet = array_flip($lamaJabatanIds);
-        $keragamanSet   = array_flip($keragamanIds);
+        $keragamanSet = array_flip($keragamanIds);
         $pengembanganKompetensiSet = array_flip($pengembanganKompetensiIds);
-        $diklatSet                 = array_flip($diklatIds);
-        $kesesuaianPendidikanSet   = array_flip($kesesuaianPendidikanIds);
-        $penugasanTimKerjaSet      = array_flip($penugasanTimKerjaIds);
-        $penugasanNondefinitifSet   = array_flip($penugasanNondefinitifIds);
+        $diklatSet = array_flip($diklatIds);
+        $kesesuaianPendidikanSet = array_flip($kesesuaianPendidikanIds);
+        $penugasanTimKerjaSet = array_flip($penugasanTimKerjaIds);
+        $penugasanNondefinitifSet = array_flip($penugasanNondefinitifIds);
 
         $query = Pegawai::with('penilaian');
         if ($filterNips !== null) {
@@ -1793,21 +1861,24 @@ class PenilaianSyncService
         $pegawais = $query->get();
 
         $updated = 0;
-        $errors  = [];
+        $errors = [];
 
         foreach ($pegawais as $pegawai) {
             try {
-                $jid    = $pegawai->jenis_jabatan_id ?? null;
+                $jid = $pegawai->jenis_jabatan_id ?? null;
                 $nipStr = (string) ($pegawai->nip ?? '');
 
-                $rec    = $pegawai->penilaian;
+                $rec = $pegawai->penilaian;
                 $oldPen = ($rec && is_array($rec->penilaian)) ? $rec->penilaian : [];
                 $newPen = [];
 
                 // Closure: resolve stored nilai for a subId from $oldPen
                 $oldNilai = static function ($id) use ($oldPen): float {
-                    if (!array_key_exists($id, $oldPen)) return 0.0;
+                    if (! array_key_exists($id, $oldPen)) {
+                        return 0.0;
+                    }
                     $e = $oldPen[$id];
+
                     return is_array($e)
                         ? (float) ($e['nilai'] ?? $e['hasil'] ?? 0)
                         : (is_numeric($e) ? (float) $e : 0.0);
@@ -1838,10 +1909,10 @@ class PenilaianSyncService
                 }
 
                 // Fetch riwayat diklat struktural and sertifikasi once per pegawai
-                $riwayatDiklat      = null;
+                $riwayatDiklat = null;
                 $riwayatSertifikasi = null;
                 if (count($diklatIds) > 0 && $nipStr !== '') {
-                    $riwayatDiklat      = $this->fetchRiwayatDiklatStruktural($nipStr, $pegawai);
+                    $riwayatDiklat = $this->fetchRiwayatDiklatStruktural($nipStr, $pegawai);
                     $riwayatSertifikasi = $this->fetchRiwayatSertifikasi($nipStr, $pegawai);
                 }
 
@@ -1860,21 +1931,29 @@ class PenilaianSyncService
                     : [];
 
                 $getAsesmenNilai = static function ($id) use ($latestDataAsesmen): ?float {
-                    if (!array_key_exists($id, $latestDataAsesmen)) return null;
-                    $e = $latestDataAsesmen[$id];
-                    if (is_array($e)) {
-                        if (isset($e['nilai']) && is_numeric($e['nilai'])) return (float) $e['nilai'];
-                        if (isset($e['hasil']) && is_numeric($e['hasil'])) return (float) $e['hasil'];
+                    if (! array_key_exists($id, $latestDataAsesmen)) {
                         return null;
                     }
+                    $e = $latestDataAsesmen[$id];
+                    if (is_array($e)) {
+                        if (isset($e['nilai']) && is_numeric($e['nilai'])) {
+                            return (float) $e['nilai'];
+                        }
+                        if (isset($e['hasil']) && is_numeric($e['hasil'])) {
+                            return (float) $e['hasil'];
+                        }
+
+                        return null;
+                    }
+
                     return is_numeric($e) ? (float) $e : null;
                 };
 
                 foreach ($allSub as $subId => $sub) {
-                    $bobot              = (float) ($sub->bobot ?? 0);
-                    $usesStandarMsk     = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
+                    $bobot = (float) ($sub->bobot ?? 0);
+                    $usesStandarMsk = $sub->indikator->indikator === 'Penilaian Kompetensi Manajerial dan Sosial Kultural';
                     $usesStandarPotensi = $sub->indikator->indikator === 'Penilaian Potensi Talenta';
-                    $nilai              = 0.0;
+                    $nilai = 0.0;
 
                     if (isset($masaSet[$subId])) {
                         // Masa Kerja: not yet auto-synced; preserve existing value
@@ -1937,9 +2016,9 @@ class PenilaianSyncService
                         $updated++;
                     }
                 } else {
-                    $nr = new Penilaian();
+                    $nr = new Penilaian;
                     $nr->pegawai_id = $pegawai->id;
-                    $nr->penilaian  = $newPen;
+                    $nr->penilaian = $newPen;
                     $nr->save();
                     $updated++;
                 }
@@ -1959,13 +2038,13 @@ class PenilaianSyncService
     {
         $headers = [];
 
-        if (!empty($token)) {
+        if (! empty($token)) {
             $encryptedToken = TokenEncryptionService::encryptTokenForHeader(
                 $token,
                 ['salt' => $token]
             );
             $headers['X-Api-Token'] = $encryptedToken;
-            $headers['origin'] = "https://nusa-be.dpd.go.id";
+            $headers['origin'] = 'https://nusa.dpd.go.id';
             // $headers['origin'] = config('app.url', 'http://localhost');
         }
 
