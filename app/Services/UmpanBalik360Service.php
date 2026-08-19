@@ -28,11 +28,18 @@ class UmpanBalik360Service
      * Default weight settings matching SettingBobot360Controller.
      */
     private array $defaultBobotSettings = [
-        'jpt_madya' => [
+        'sekjen' => [
+            'atasan_langsung' => 0,
+            'penerima_manfaat' => 0,
+            'rekan_kerja' => 0,
+            'bawahan' => 50,
+            'penilaian_diri' => 50,
+        ],
+        'deputi' => [
             'atasan_langsung' => 40,
             'penerima_manfaat' => 0,
-            'rekan_kerja' => 15,
-            'bawahan' => 40,
+            'rekan_kerja' => 30,
+            'bawahan' => 25,
             'penilaian_diri' => 5,
         ],
         'jpt_pratama' => [
@@ -313,9 +320,8 @@ class UmpanBalik360Service
 
             // targetCount = jumlah total penilai yang harus mengisi penilaian
             if ($bobot > 0) {
-                $defaultTarget = $this->defaultTargets[$roleKey] ?? 1;
                 $assignedCount = $roleTotalAssigned[$roleKey] ?? 0;
-                $targetCount = max($defaultTarget, $assignedCount, $receivedCount);
+                $targetCount = $assignedCount;
             } else {
                 $targetCount = 0;
             }

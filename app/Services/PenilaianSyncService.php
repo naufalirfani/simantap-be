@@ -210,9 +210,13 @@ class PenilaianSyncService
                 return $resolveKuadran(is_array($pegawai->riwayat_skp) ? $pegawai->riwayat_skp : null);
             }
 
-            // Persist to DB cache
-            $pegawai->riwayat_skp = $records;
-            $pegawai->saveQuietly();
+            if (! empty($records)) {
+                // Persist to DB cache
+                $pegawai->riwayat_skp = $records;
+                $pegawai->saveQuietly();
+            } else {
+                $records = is_array($pegawai->riwayat_skp) ? $pegawai->riwayat_skp : [];
+            }
 
             $kuadran = $resolveKuadran($records);
             if ($kuadran === null) {
@@ -485,11 +489,15 @@ class PenilaianSyncService
                 return is_array($pegawai->riwayat_jabatan) ? $pegawai->riwayat_jabatan : null;
             }
 
-            // Persist to DB cache
-            $pegawai->riwayat_jabatan = $records;
-            $pegawai->saveQuietly();
+            if (! empty($records)) {
+                // Persist to DB cache
+                $pegawai->riwayat_jabatan = $records;
+                $pegawai->saveQuietly();
 
-            return $records;
+                return $records;
+            }
+
+            return is_array($pegawai->riwayat_jabatan) ? $pegawai->riwayat_jabatan : null;
         } catch (\Exception $e) {
             Log::error("RiwayatJabatan API error for NIP {$nip}: ".$e->getMessage());
 
@@ -1245,6 +1253,10 @@ class PenilaianSyncService
 
         $mergedRecords = $this->mergeRiwayatPengembanganKompetensiRecords(...$recordSets);
 
+        if (empty($mergedRecords) && is_array($pegawai->riwayat_pengembangan_kompetensi) && ! empty($pegawai->riwayat_pengembangan_kompetensi)) {
+            return $pegawai->riwayat_pengembangan_kompetensi;
+        }
+
         return $this->persistRiwayatPengembanganKompetensiCache($pegawai, $mergedRecords);
     }
 
@@ -1435,18 +1447,24 @@ class PenilaianSyncService
                 return is_array($pegawai->riwayat_diklat) ? $pegawai->riwayat_diklat : null;
             }
 
+            if (empty($records) && is_array($pegawai->riwayat_diklat) && ! empty($pegawai->riwayat_diklat)) {
+                return $pegawai->riwayat_diklat;
+            }
+
             $records = $deduplicate($records);
 
             $existingRecords = is_array($pegawai->riwayat_diklat)
                 ? $pegawai->riwayat_diklat
                 : [];
-            $records = $this->mergeRiwayatPengembanganKompetensiRecords($existingRecords, $records);
+            $merged = $this->mergeRiwayatPengembanganKompetensiRecords($existingRecords, $records);
 
-            // Persist to DB cache
-            $pegawai->riwayat_diklat = $records;
-            $pegawai->saveQuietly();
+            if (! empty($merged)) {
+                // Persist to DB cache
+                $pegawai->riwayat_diklat = $merged;
+                $pegawai->saveQuietly();
+            }
 
-            return $records;
+            return ! empty($merged) ? $merged : (is_array($pegawai->riwayat_diklat) ? $pegawai->riwayat_diklat : null);
         } catch (\Exception $e) {
             Log::error("DiklatStruktural API error for NIP {$nip}: ".$e->getMessage());
 
@@ -1512,13 +1530,21 @@ class PenilaianSyncService
                 return is_array($pegawai->riwayat_sertifikasi) ? $pegawai->riwayat_sertifikasi : null;
             }
 
+            if (empty($records) && is_array($pegawai->riwayat_sertifikasi) && ! empty($pegawai->riwayat_sertifikasi)) {
+                return $pegawai->riwayat_sertifikasi;
+            }
+
             $records = $deduplicate($records);
 
-            // Persist to DB cache
-            $pegawai->riwayat_sertifikasi = $records;
-            $pegawai->saveQuietly();
+            if (! empty($records)) {
+                // Persist to DB cache
+                $pegawai->riwayat_sertifikasi = $records;
+                $pegawai->saveQuietly();
 
-            return $records;
+                return $records;
+            }
+
+            return is_array($pegawai->riwayat_sertifikasi) ? $pegawai->riwayat_sertifikasi : null;
         } catch (\Exception $e) {
             Log::error("Sertifikasi API error for NIP {$nip}: ".$e->getMessage());
 
