@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Instrumen;
 use App\Models\PengajuanPenilaian;
+use App\Models\SubIndikator;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Http\Response;
@@ -94,6 +96,7 @@ class PengajuanPenilaianController extends Controller
                     'tanggal_sk' => 'sometimes|date|nullable',
                     'masa_berlaku_mulai' => 'sometimes|date|nullable',
                     'masa_berlaku_selesai' => 'sometimes|date|nullable',
+                    'institusi_penyelenggara' => 'sometimes|string|nullable',
                     'catatan' => 'sometimes|string|nullable',
                 ], [
                     'status.unique_diajukan' => 'Pengajuan sedang diproses untuk penilaian yang sama',
@@ -115,6 +118,21 @@ class PengajuanPenilaianController extends Controller
                             ],
                         ], Response::HTTP_UNPROCESSABLE_ENTITY);
                     }
+                }
+
+                $tanggalSkError = $this->validatePenghargaanTanggalSk(
+                    $validated['subindikator_id'],
+                    $validated['instrumen_id'] ?? null,
+                    $validated['tanggal_sk'] ?? null
+                );
+                if ($tanggalSkError) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Validation failed',
+                        'errors' => [
+                            'tanggal_sk' => [$tanggalSkError],
+                        ],
+                    ], Response::HTTP_UNPROCESSABLE_ENTITY);
                 }
 
                 $file = $request->file('file');
@@ -141,6 +159,7 @@ class PengajuanPenilaianController extends Controller
                     'tanggal_sk' => $validated['tanggal_sk'] ?? null,
                     'masa_berlaku_mulai' => $validated['masa_berlaku_mulai'] ?? null,
                     'masa_berlaku_selesai' => $validated['masa_berlaku_selesai'] ?? null,
+                    'institusi_penyelenggara' => $validated['institusi_penyelenggara'] ?? null,
                     'catatan' => $validated['catatan'] ?? null,
                 ]);
             } else {
@@ -154,6 +173,7 @@ class PengajuanPenilaianController extends Controller
                     'tanggal_sk' => 'sometimes|date|nullable',
                     'masa_berlaku_mulai' => 'sometimes|date|nullable',
                     'masa_berlaku_selesai' => 'sometimes|date|nullable',
+                    'institusi_penyelenggara' => 'sometimes|string|nullable',
                     'catatan' => 'sometimes|string|nullable',
                 ]);
 
@@ -173,6 +193,21 @@ class PengajuanPenilaianController extends Controller
                             ],
                         ], Response::HTTP_UNPROCESSABLE_ENTITY);
                     }
+                }
+
+                $tanggalSkError = $this->validatePenghargaanTanggalSk(
+                    $validated['subindikator_id'],
+                    $validated['instrumen_id'] ?? null,
+                    $validated['tanggal_sk'] ?? null
+                );
+                if ($tanggalSkError) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Validation failed',
+                        'errors' => [
+                            'tanggal_sk' => [$tanggalSkError],
+                        ],
+                    ], Response::HTTP_UNPROCESSABLE_ENTITY);
                 }
 
                 $pengajuanPenilaian = PengajuanPenilaian::create($validated);
@@ -244,6 +279,7 @@ class PengajuanPenilaianController extends Controller
                 'tanggal_sk' => 'sometimes|date|nullable',
                 'masa_berlaku_mulai' => 'sometimes|date|nullable',
                 'masa_berlaku_selesai' => 'sometimes|date|nullable',
+                'institusi_penyelenggara' => 'sometimes|string|nullable',
                 'catatan' => 'sometimes|string|nullable',
             ]);
 
@@ -268,6 +304,25 @@ class PengajuanPenilaianController extends Controller
                         ],
                     ], Response::HTTP_UNPROCESSABLE_ENTITY);
                 }
+            }
+
+            $targetSubindikatorId = $validated['subindikator_id'] ?? $pengajuanPenilaian->subindikator_id;
+            $targetInstrumenId = $validated['instrumen_id'] ?? $pengajuanPenilaian->instrumen_id;
+            $targetTanggalSk = array_key_exists('tanggal_sk', $validated) ? $validated['tanggal_sk'] : $pengajuanPenilaian->tanggal_sk;
+
+            $tanggalSkError = $this->validatePenghargaanTanggalSk(
+                $targetSubindikatorId,
+                $targetInstrumenId,
+                $targetTanggalSk
+            );
+            if ($tanggalSkError) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => [
+                        'tanggal_sk' => [$tanggalSkError],
+                    ],
+                ], Response::HTTP_UNPROCESSABLE_ENTITY);
             }
 
             // Handle file upload
@@ -336,7 +391,25 @@ class PengajuanPenilaianController extends Controller
                 'tanggal_sk' => 'sometimes|date|nullable',
                 'masa_berlaku_mulai' => 'sometimes|date|nullable',
                 'masa_berlaku_selesai' => 'sometimes|date|nullable',
+                'institusi_penyelenggara' => 'sometimes|string|nullable',
             ]);
+
+            if (array_key_exists('tanggal_sk', $validated)) {
+                $tanggalSkError = $this->validatePenghargaanTanggalSk(
+                    $pengajuanPenilaian->subindikator_id,
+                    $pengajuanPenilaian->instrumen_id,
+                    $validated['tanggal_sk']
+                );
+                if ($tanggalSkError) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Validation failed',
+                        'errors' => [
+                            'tanggal_sk' => [$tanggalSkError],
+                        ],
+                    ], Response::HTTP_UNPROCESSABLE_ENTITY);
+                }
+            }
 
             $pengajuanPenilaian->update(array_merge($validated, [
                 'status' => 'Diterima',
@@ -572,5 +645,43 @@ class PengajuanPenilaianController extends Controller
         $extensionPart = $extension !== '' ? ".{$extension}" : '';
 
         return "{$safeBaseName}{$extensionPart}";
+    }
+
+    /**
+     * Validate that tanggal_sk is within the duration dynamically specified in the instrumen (e.g. "5 tahun terakhir").
+     */
+    private function validatePenghargaanTanggalSk(string $subindikatorId, ?string $instrumenId, ?string $tanggalSk): ?string
+    {
+        if (empty($tanggalSk)) {
+            return null;
+        }
+
+        $maxDate = now()->endOfDay()->toDateString();
+        $tanggalSkStr = date('Y-m-d', strtotime($tanggalSk));
+        if ($tanggalSkStr > $maxDate) {
+            return 'Tanggal SK tidak boleh melebihi tanggal hari ini';
+        }
+
+        $subindikator = SubIndikator::find($subindikatorId);
+        $isPenghargaan = $subindikator && (
+            stripos($subindikator->subindikator ?? '', 'Penghargaan') !== false ||
+            stripos($subindikator->nama ?? '', 'Penghargaan') !== false
+        );
+
+        if ($isPenghargaan && $instrumenId) {
+            $instrumen = Instrumen::find($instrumenId);
+            $instrumenText = $instrumen?->instrumen ?? $instrumen?->nama ?? '';
+            if (preg_match('/(\d+)\s*tahun/i', $instrumenText, $matches)) {
+                $years = (int) $matches[1];
+                if ($years > 0) {
+                    $minDate = now()->subYears($years)->startOfDay()->toDateString();
+                    if ($tanggalSkStr < $minDate) {
+                        return "Sesuai ketentuan instrumen ({$years} tahun terakhir), tanggal SK tidak boleh lebih lama dari {$years} tahun yang lalu";
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 }

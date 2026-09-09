@@ -62,9 +62,9 @@ class InstrumenSeeder extends Seeder
             ['parent' => 'Integritas/Moralitas', 'instrumen' => 'c. Pernah dijatuhi hukuman disiplin sedang dalam 5 tahun terakhir', 'skor' => 50.00],
             ['parent' => 'Integritas/Moralitas', 'instrumen' => 'd. Pernah dijatuhi hukuman disiplin berat dalam 5 tahun terakhir', 'skor' => 25.00],
             ['parent' => 'Integritas/Moralitas', 'instrumen' => 'e. Sedang menjalani hukuman disiplin', 'skor' => 0.00],
-            // Kesesuaian Pendidikan dengan Jabatan Target
-            ['parent' => 'Kesesuaian Pendidikan dengan Jabatan Target', 'instrumen' => 'a. Memiliki riwayat pendidikan dalam bidang ilmu yang sesuai dengan jabatan target', 'skor' => 100.00],
-            ['parent' => 'Kesesuaian Pendidikan dengan Jabatan Target', 'instrumen' => 'b. Tidak Memiliki riwayat pendidikan dalam bidang ilmu yang sesuai dengan jabatan target', 'skor' => 50.00],
+            // Kesesuaian Bidang Ilmu
+            ['parent' => 'Kesesuaian Bidang Ilmu', 'instrumen' => 'a. Memiliki riwayat pendidikan dalam bidang ilmu yang sesuai dengan rumpun jabatan target', 'skor' => 100.00],
+            ['parent' => 'Kesesuaian Bidang Ilmu', 'instrumen' => 'b. Tidak Memiliki riwayat pendidikan dalam bidang ilmu yang sesuai dengan rumpun jabatan target', 'skor' => 50.00],
             // Penugasan dalam Tim Kerja
             ['parent' => 'Penugasan dalam Tim Kerja', 'instrumen' => 'a. Pemilik/Penilai/Ketua tim kerja lingkup lintas instansi dalam 2 tahun terakhir', 'skor' => 100.00],
             ['parent' => 'Penugasan dalam Tim Kerja', 'instrumen' => 'b. Pemilik/Penilai/Ketua tim kerja lingkup internal instansi dalam 2 tahun terakhir', 'skor' => 75.00],
@@ -98,11 +98,11 @@ class InstrumenSeeder extends Seeder
             ['parent' => 'Penilaian Kerja (SKP)', 'instrumen' => 'e. Sangat Kurang ', 'skor' => 20.00],
 
             // Umpan Balik 360 Derajat
-            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'a. Sangat Baik', 'skor' => 100.00],
-            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'b. Baik', 'skor' => 80.00],
-            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'c. Butuh Perbaikan', 'skor' => 60.00],
-            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'd. Kurang', 'skor' => 40.00],
-            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'e. Sangat Kurang ', 'skor' => 20.00],
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'a. Sangat Baik (91 - 100)', 'skor' => 100.00],
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'b. Baik (80 - 90)', 'skor' => 80.00],
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'c. Butuh Perbaikan (60 - 79)', 'skor' => 60.00],
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'd. Kurang (40 - 59)', 'skor' => 40.00],
+            ['parent' => 'Umpan Balik 360 Derajat', 'instrumen' => 'e. Sangat Kurang (0 - 39)', 'skor' => 20.00],
         ];
 
         foreach ($items as $it) {

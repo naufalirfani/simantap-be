@@ -162,7 +162,7 @@ class SubIndikatorSeeder extends Seeder
                 'indikator_id' => $kualifikasi->id,
             ],
             [
-                'subindikator' => 'Kesesuaian Pendidikan dengan Jabatan Target',
+                'subindikator' => 'Kesesuaian Bidang Ilmu',
                 'bobot' => 10.00,
                 'isactive' => true,
                 'indikator_id' => $kualifikasi->id,

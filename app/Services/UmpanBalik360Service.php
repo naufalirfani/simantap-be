@@ -187,8 +187,11 @@ class UmpanBalik360Service
         $updatedCount = 0;
         $notFoundNips = [];
 
-        $sub360 = SubIndikator::where('subindikator', 'like', '%Umpan Balik 360%')
-            ->orWhere('subindikator', 'like', '%360%')
+        $sub360 = SubIndikator::with('instrumens')
+            ->where(function ($query) {
+                $query->where('subindikator', 'like', '%Umpan Balik 360%')
+                    ->orWhere('subindikator', 'like', '%360%');
+            })
             ->first();
 
         foreach ($grouped as $nip => $periodeMap) {
@@ -240,8 +243,13 @@ class UmpanBalik360Service
 
                 if ($latestRekap && isset($latestRekap['nilai_akhir'])) {
                     $nilai360 = (float) $latestRekap['nilai_akhir'];
+                    $hasInstrumen = $sub360->instrumens && $sub360->instrumens->isNotEmpty();
+                    $nilaiPenilaian = $hasInstrumen
+                        ? ($this->resolveNilaiFromInstrumen($nilai360, $sub360->instrumens) ?? $nilai360)
+                        : $nilai360;
+
                     $bobot360 = (float) ($sub360->bobot ?? 0);
-                    $hasil360 = round($nilai360 * ($bobot360 / 100.0), 2);
+                    $hasil360 = round($nilaiPenilaian * ($bobot360 / 100.0), 2);
 
                     $penilaianRec = Penilaian::where('pegawai_id', $pegawai->id)->first();
                     if (! $penilaianRec) {
@@ -253,7 +261,7 @@ class UmpanBalik360Service
                     }
 
                     $penData[$sub360->id] = [
-                        'nilai' => round($nilai360, 2),
+                        'nilai' => round($nilaiPenilaian, 2),
                         'hasil' => round($hasil360, 2),
                     ];
 
@@ -607,5 +615,197 @@ class UmpanBalik360Service
         }
 
         return false;
+    }
+
+    /**
+     * Resolve the score (skor) from instrumens based on nilai_akhir.
+     *
+     * Example instrumen:
+     * - "a. Sangat Baik (91 - 100)" -> skor 100.00
+     * - "b. Baik (80 - 90)" -> skor 80.00
+     * - "c. Butuh Perbaikan (60 - 79)" -> skor 60.00
+     * - "d. Kurang (40 - 59)" -> skor 40.00
+     * - "e. Sangat Kurang (0 - 39)" -> skor 20.00
+     *
+     * @param  float  $nilaiAkhir
+     * @param  \Illuminate\Support\Collection|array|null  $instrumens
+     * @return float|null
+     */
+    public function resolveNilaiFromInstrumen(float $nilaiAkhir, $instrumens): ?float
+    {
+        if (empty($instrumens)) {
+            return null;
+        }
+
+        if ($instrumens instanceof \Illuminate\Support\Collection && $instrumens->isEmpty()) {
+            return null;
+        }
+
+        $tiers = [];
+
+        foreach ($instrumens as $ins) {
+            $text = strtolower(trim($ins->instrumen ?? ''));
+            $skor = (float) $ins->skor;
+
+            // 1. Range pattern: "(91 - 100)", "80 - 90", "90 s.d. 100%", "60-79"
+            if (preg_match('/(\d+(?:\.\d+)?)\s*%?\s*(?:-|–|—|s\.?d\.?|s\/d|sd|sampai|hingga)\s*(\d+(?:\.\d+)?)\s*%?/u', $text, $m)) {
+                $min = (float) $m[1];
+                $max = (float) $m[2];
+                if ($min > $max) {
+                    [$min, $max] = [$max, $min];
+                }
+                $tiers[] = [
+                    'min' => $min,
+                    'max' => $max,
+                    'skor' => $skor,
+                ];
+
+                continue;
+            }
+
+            // 2. Upper unbounded: ">= 91", "> 90", "91 ke atas", "91 keatas"
+            if (preg_match('/(?:>=|>)\s*(\d+(?:\.\d+)?)/u', $text, $m) || preg_match('/(\d+(?:\.\d+)?)\s*%?\s*ke\s*atas/u', $text, $m)) {
+                $isStrictGreater = str_starts_with(trim($m[0]), '>') && ! str_starts_with(trim($m[0]), '>=');
+                $min = (float) $m[1] + ($isStrictGreater ? 0.01 : 0.0);
+                $tiers[] = [
+                    'min' => $min,
+                    'max' => PHP_FLOAT_MAX,
+                    'skor' => $skor,
+                ];
+
+                continue;
+            }
+
+            // 3. Lower unbounded: "<= 39", "< 40", "39 ke bawah", "39 kebawah"
+            if (preg_match('/(?:<=|<)\s*(\d+(?:\.\d+)?)/u', $text, $m) || preg_match('/(\d+(?:\.\d+)?)\s*%?\s*ke\s*bawah/u', $text, $m)) {
+                $isStrictLess = str_starts_with(trim($m[0]), '<') && ! str_starts_with(trim($m[0]), '<=');
+                $max = (float) $m[1] - ($isStrictLess ? 0.01 : 0.0);
+                $tiers[] = [
+                    'min' => 0.0,
+                    'max' => $max,
+                    'skor' => $skor,
+                ];
+
+                continue;
+            }
+
+            // 4. Fallback category text matching if no numbers found in instrumen text
+            if (str_contains($text, 'sangat baik')) {
+                $tiers[] = ['min' => 91.0, 'max' => 100.0, 'skor' => $skor];
+            } elseif (str_contains($text, 'sangat kurang')) {
+                $tiers[] = ['min' => 0.0, 'max' => 39.0, 'skor' => $skor];
+            } elseif (str_contains($text, 'butuh perbaikan')) {
+                $tiers[] = ['min' => 60.0, 'max' => 79.0, 'skor' => $skor];
+            } elseif (str_contains($text, 'baik')) {
+                $tiers[] = ['min' => 80.0, 'max' => 90.0, 'skor' => $skor];
+            } elseif (str_contains($text, 'kurang')) {
+                $tiers[] = ['min' => 40.0, 'max' => 59.0, 'skor' => $skor];
+            }
+        }
+
+        if (empty($tiers)) {
+            return null;
+        }
+
+        // Sort descending by min bound
+        usort($tiers, fn ($a, $b) => $b['min'] <=> $a['min']);
+
+        // Step 1: Direct float matching
+        foreach ($tiers as $tier) {
+            if ($nilaiAkhir >= $tier['min'] && $nilaiAkhir <= $tier['max']) {
+                return $tier['skor'];
+            }
+        }
+
+        // Step 2: Rounded integer matching (handles discrete integer boundary gaps like 90.5)
+        $rounded = round($nilaiAkhir);
+        foreach ($tiers as $tier) {
+            if ($rounded >= $tier['min'] && $rounded <= $tier['max']) {
+                return $tier['skor'];
+            }
+        }
+
+        // Step 3: Out of bounds fallback
+        $maxBound = max(array_column($tiers, 'max'));
+        if ($nilaiAkhir >= $maxBound) {
+            return $tiers[0]['skor'];
+        }
+
+        $minBound = min(array_column($tiers, 'min'));
+        if ($nilaiAkhir <= $minBound) {
+            return end($tiers)['skor'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Recalculate and update the penilaians table for pegawai from their stored riwayat_umpan_balik.
+     * Useful when instrumens are configured or to sync existing records without calling NUSA API.
+     */
+    public function syncPenilaianFromRiwayat(?string $nip = null): int
+    {
+        $sub360 = SubIndikator::with('instrumens')
+            ->where(function ($query) {
+                $query->where('subindikator', 'like', '%Umpan Balik 360%')
+                    ->orWhere('subindikator', 'like', '%360%');
+            })
+            ->first();
+
+        if (! $sub360) {
+            return 0;
+        }
+
+        $query = Pegawai::whereNotNull('riwayat_umpan_balik');
+        if ($nip !== null) {
+            $query->where('nip', $nip);
+        }
+
+        $pegawais = $query->get();
+        $updated = 0;
+
+        foreach ($pegawais as $pegawai) {
+            $riwayat = is_array($pegawai->riwayat_umpan_balik) ? $pegawai->riwayat_umpan_balik : [];
+            if (empty($riwayat)) {
+                continue;
+            }
+
+            $sortedRiwayat = $riwayat;
+            usort($sortedRiwayat, function ($a, $b) {
+                return strcmp($b['periode'] ?? '', $a['periode'] ?? '');
+            });
+            $latestRekap = $sortedRiwayat[0];
+
+            if ($latestRekap && isset($latestRekap['nilai_akhir'])) {
+                $nilai360 = (float) $latestRekap['nilai_akhir'];
+                $hasInstrumen = $sub360->instrumens && $sub360->instrumens->isNotEmpty();
+                $nilaiPenilaian = $hasInstrumen
+                    ? ($this->resolveNilaiFromInstrumen($nilai360, $sub360->instrumens) ?? $nilai360)
+                    : $nilai360;
+
+                $bobot360 = (float) ($sub360->bobot ?? 0);
+                $hasil360 = round($nilaiPenilaian * ($bobot360 / 100.0), 2);
+
+                $penilaianRec = Penilaian::where('pegawai_id', $pegawai->id)->first();
+                if (! $penilaianRec) {
+                    $penilaianRec = new Penilaian;
+                    $penilaianRec->pegawai_id = $pegawai->id;
+                    $penData = [];
+                } else {
+                    $penData = is_array($penilaianRec->penilaian) ? $penilaianRec->penilaian : [];
+                }
+
+                $penData[$sub360->id] = [
+                    'nilai' => round($nilaiPenilaian, 2),
+                    'hasil' => round($hasil360, 2),
+                ];
+
+                $penilaianRec->penilaian = $penData;
+                $penilaianRec->save();
+                $updated++;
+            }
+        }
+
+        return $updated;
     }
 }

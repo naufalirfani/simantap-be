@@ -854,6 +854,90 @@ class PenilaianSyncService
         return $this->getLatestAcceptedPengajuanScore($pegawaiId, $subindikatorId);
     }
 
+    /**
+     * Derive the nilai for "Penghargaan atas Capaian Kinerja" from accepted
+     * pengajuan_penilaian.
+     * Durasi tahun ditentukan secara dinamis berdasarkan teks instrumen
+     * (misalnya: "dalam 5 tahun terakhir", regex /(\d+)\s*tahun/i), bukan di-hardcode.
+     * Mengambil pengajuan berstatus 'Diterima' yang tanggal_sk masih dalam kurun waktu berlaku
+     * dan memilih skor instrumen tertinggi (atau 0.0 jika tidak ada).
+     */
+    public function getNilaiPenghargaanCapaianKinerja(string $pegawaiId, string $subindikatorId): ?float
+    {
+        $todayStr = now()->endOfDay()->toDateString();
+
+        $pengajuans = \App\Models\PengajuanPenilaian::with('instrumen')
+            ->where('pegawai_id', $pegawaiId)
+            ->where('subindikator_id', $subindikatorId)
+            ->where('status', 'Diterima')
+            ->whereNotNull('tanggal_sk')
+            ->whereDate('tanggal_sk', '<=', $todayStr)
+            ->orderByDesc('tanggal_sk')
+            ->orderByDesc('created_at')
+            ->get();
+
+        $highestSkor = null;
+
+        foreach ($pengajuans as $pengajuan) {
+            if (! $pengajuan->instrumen) {
+                continue;
+            }
+
+            $instrumenText = $pengajuan->instrumen->instrumen ?? $pengajuan->instrumen->nama ?? '';
+            $years = null;
+            if (preg_match('/(\d+)\s*tahun/i', $instrumenText, $matches)) {
+                $years = (int) $matches[1];
+            }
+
+            $tanggalSkStr = $pengajuan->tanggal_sk instanceof \Carbon\CarbonInterface
+                ? $pengajuan->tanggal_sk->toDateString()
+                : date('Y-m-d', strtotime((string) $pengajuan->tanggal_sk));
+
+            // Jika instrumen menentukan batasan tahun (misalnya: "dalam 5 tahun terakhir")
+            if ($years !== null && $years > 0) {
+                $minDate = now()->subYears($years)->startOfDay()->toDateString();
+                if ($tanggalSkStr < $minDate) {
+                    continue; // Lewati karena sudah kedaluwarsa sesuai ketentuan tahun instrumen
+                }
+            }
+
+            $skor = (float) $pengajuan->instrumen->skor;
+            if ($highestSkor === null || $skor > $highestSkor) {
+                $highestSkor = $skor;
+            }
+        }
+
+        return $highestSkor ?? 0.0;
+    }
+
+    /**
+     * Derive the nilai for "Umpan Balik 360 Derajat" from pegawai's riwayat_umpan_balik
+     * and its instrumen score tiers (via UmpanBalik360Service).
+     */
+    public function getNilaiUmpanBalik360(?array $riwayat, $instrumens): ?float
+    {
+        if (empty($riwayat)) {
+            return null;
+        }
+
+        $sorted = $riwayat;
+        usort($sorted, fn ($a, $b) => strcmp($b['periode'] ?? '', $a['periode'] ?? ''));
+        $latest = $sorted[0] ?? null;
+
+        if (! $latest || ! isset($latest['nilai_akhir'])) {
+            return null;
+        }
+
+        $nilai360 = (float) $latest['nilai_akhir'];
+        $hasInstrumen = $instrumens && ($instrumens instanceof \Illuminate\Support\Collection ? $instrumens->isNotEmpty() : ! empty($instrumens));
+
+        if (! $hasInstrumen) {
+            return $nilai360;
+        }
+
+        return (new UmpanBalik360Service)->resolveNilaiFromInstrumen($nilai360, $instrumens) ?? $nilai360;
+    }
+
     // ─────────────────────────────────────────────────────────────
     // Pengembangan Kompetensi – external API (rw-kursus) + DB cache
     // ─────────────────────────────────────────────────────────────
@@ -1774,6 +1858,7 @@ class PenilaianSyncService
         $kesesuaianPendidikanIds = [];
         $penugasanTimKerjaIds = [];
         $penugasanNondefinitifIds = [];
+        $penghargaanCapaianKinerjaIds = [];
 
         foreach ($allSub as $id => $s) {
             $name = $s->subindikator ?? '';
@@ -1847,8 +1932,8 @@ class PenilaianSyncService
                 continue;
             }
 
-            // Kesesuaian Pendidikan dengan Jabatan Target: default value 50
-            if (stripos($name, 'Kesesuaian Pendidikan dengan Jabatan Target') !== false) {
+            // Kesesuaian Bidang Ilmu: default value 50
+            if (stripos($name, 'Kesesuaian Bidang Ilmu') !== false) {
                 $kesesuaianPendidikanIds[] = $id;
 
                 continue;
@@ -1862,6 +1947,24 @@ class PenilaianSyncService
 
             if (stripos($name, 'Penugasan Dalam Jabatan Nondefinitif') !== false) {
                 $penugasanNondefinitifIds[] = $id;
+
+                continue;
+            }
+
+            if (
+                stripos($name, 'Penghargaan atas Capaian Kinerja') !== false ||
+                (stripos($name, 'Penghargaan') !== false && stripos($name, 'Capaian Kinerja') !== false)
+            ) {
+                $penghargaanCapaianKinerjaIds[] = $id;
+
+                continue;
+            }
+
+            if (
+                stripos($name, 'umpan balik 360') !== false ||
+                (stripos($name, 'umpan balik') !== false && stripos($name, '360') !== false)
+            ) {
+                $umpanBalik360Ids[] = $id;
 
                 continue;
             }
@@ -1879,6 +1982,8 @@ class PenilaianSyncService
         $kesesuaianPendidikanSet = array_flip($kesesuaianPendidikanIds);
         $penugasanTimKerjaSet = array_flip($penugasanTimKerjaIds);
         $penugasanNondefinitifSet = array_flip($penugasanNondefinitifIds);
+        $penghargaanCapaianKinerjaSet = array_flip($penghargaanCapaianKinerjaIds);
+        $umpanBalik360Set = array_flip($umpanBalik360Ids ?? []);
 
         $query = Pegawai::with('penilaian');
         if ($filterNips !== null) {
@@ -2006,13 +2111,19 @@ class PenilaianSyncService
                         $nilai = $this->getNilaiDiklatKepemimpinan($riwayatDiklat, $riwayatSertifikasi, $instrBySub[$subId] ?? collect(), $riwayatPengembanganKompetensi)
                             ?? $oldNilai($subId);
                     } elseif (isset($kesesuaianPendidikanSet[$subId])) {
-                        // Kesesuaian Pendidikan dengan Jabatan Target: default value 100
+                        // Kesesuaian Bidang Ilmu: default value 100
                         $nilai = 100.0;
                     } elseif (isset($penugasanTimKerjaSet[$subId])) {
                         $nilai = $this->getNilaiPenugasanTimKerja($pegawaiId, $subId)
                             ?? $oldNilai($subId);
                     } elseif (isset($penugasanNondefinitifSet[$subId])) {
                         $nilai = $this->getNilaiPenugasanJabatanNondefinitif($pegawaiId, $subId)
+                            ?? $oldNilai($subId);
+                    } elseif (isset($penghargaanCapaianKinerjaSet[$subId])) {
+                        $nilai = $this->getNilaiPenghargaanCapaianKinerja($pegawaiId, $subId)
+                            ?? $oldNilai($subId);
+                    } elseif (isset($umpanBalik360Set[$subId])) {
+                        $nilai = $this->getNilaiUmpanBalik360($pegawai->riwayat_umpan_balik, $instrBySub[$subId] ?? collect())
                             ?? $oldNilai($subId);
                     } else {
                         $nilai = $oldNilai($subId);

@@ -24,6 +24,7 @@ class PengajuanPenilaian extends Model
         'tanggal_sk',
         'masa_berlaku_mulai',
         'masa_berlaku_selesai',
+        'institusi_penyelenggara',
         'catatan',
         'catatan_admin',
     ];
