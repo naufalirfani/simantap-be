@@ -40,4 +40,14 @@ class PetaJabatan extends Model
 
     public $incrementing = false;
     protected $keyType = 'string';
+
+    public function suksesor()
+    {
+        return $this->hasOne(Suksesor::class, 'peta_jabatan_id');
+    }
+
+    public function syaratSuksesi()
+    {
+        return $this->hasOne(SyaratSuksesi::class, 'jabatan_id');
+    }
 }

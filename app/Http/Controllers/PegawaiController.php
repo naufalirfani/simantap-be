@@ -3,8 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Pegawai;
+use App\Models\PetaJabatan;
+use App\Models\Suksesor;
+use App\Models\SyaratSuksesi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 
 class PegawaiController extends Controller
 {
@@ -394,6 +398,11 @@ class PegawaiController extends Controller
     {
         try {
             $retensi = $request->boolean('retensi', false);
+            $kategoriJabatan = strtolower(trim((string) $request->get(
+                'jenis_jabatan_kategori',
+                $request->get('kategori_jabatan', $request->get('jenis_jabatan', 'keduanya'))
+            )));
+
             $allowedTypes = [
                 'Jabatan Pimpinan Tinggi Utama',
                 'Jabatan Pimpinan Tinggi Madya',
@@ -405,12 +414,20 @@ class PegawaiController extends Controller
 
             // Equivalensi antara jabatan struktural dan fungsional
             $equivalensi = [
-                'Jabatan Pimpinan Tinggi Utama' => [],
-                'Jabatan Pimpinan Tinggi Madya' => [],
+                'Jabatan Pimpinan Tinggi Utama' => ['Jabatan Fungsional Ahli Utama'],
+                'Jabatan Pimpinan Tinggi Madya' => ['Jabatan Fungsional Ahli Utama'],
                 'Jabatan Pimpinan Tinggi Pratama' => ['Jabatan Fungsional Ahli Utama'],
                 'Jabatan Administrator' => ['Jabatan Fungsional Ahli Madya'],
-                'Jabatan Pengawas' => ['Jabatan Fungsional Ahli Muda'],
-                'Jabatan Pelaksana' => ['Jabatan Fungsional Ahli Pertama'],
+                'Jabatan Pengawas' => [
+                    'Jabatan Fungsional Ahli Muda',
+                    'Jabatan Fungsional Penyelia',
+                ],
+                'Jabatan Pelaksana' => [
+                    'Jabatan Fungsional Ahli Pertama',
+                    'Jabatan Fungsional Mahir',
+                    'Jabatan Fungsional Terampil',
+                    'Jabatan Fungsional Pemula',
+                ],
             ];
 
             $typesToUse = [];
@@ -441,6 +458,16 @@ class PegawaiController extends Controller
             if ($syaratSuksesi && is_array($syaratSuksesi->syarat)) {
                 $syaratMap = $syaratSuksesi->syarat;
             }
+
+            $gunakanKompetensiTeknis = $syaratSuksesi ? (bool) $syaratSuksesi->gunakan_kompetensi_teknis : false;
+            $sesuaiRumpunJabatan = $syaratSuksesi ? (bool) $syaratSuksesi->sesuai_rumpun_jabatan : false;
+            $minimalUsia = $syaratSuksesi && $syaratSuksesi->minimal_usia !== null ? (int) $syaratSuksesi->minimal_usia : null;
+            $maksimalUsia = $syaratSuksesi && $syaratSuksesi->maksimal_usia !== null ? (int) $syaratSuksesi->maksimal_usia : null;
+            $syaratPangkatGolongan = $syaratSuksesi ? $syaratSuksesi->pangkat_golongan : null;
+            $requiredGolonganRank = $this->getGolonganRank($syaratPangkatGolongan);
+
+            $allPetaMap = PetaJabatan::all()->keyBy('id')->all();
+            $targetRumpun = $this->getRumpunDeputi($peta, $allPetaMap, $retensi);
 
             if ($retensi) {
                 // Retensi: ambil jabatan yang setara (baik struktural maupun fungsional)
@@ -483,12 +510,34 @@ class PegawaiController extends Controller
                 }
             }
 
+            // Filter jenis jabatan berdasarkan pilihan: fungsional, struktural, atau keduanya
+            if ($kategoriJabatan === 'fungsional') {
+                $typesToUse = array_values(array_filter($typesToUse, function ($type) {
+                    return stripos($type, 'fungsional') !== false;
+                }));
+            } elseif (in_array($kategoriJabatan, ['struktural', 'non_fungsional', 'non-fungsional', 'non fungsional'], true)) {
+                $typesToUse = array_values(array_filter($typesToUse, function ($type) {
+                    return stripos($type, 'fungsional') === false;
+                }));
+            }
+
             // load daftar kotak intervals (if any) to determine kotak position
             $daftarKotak = \App\Models\DaftarKotak::latest()->first();
 
-            $pegawaiCandidates = Pegawai::with('penilaian')
+            // Exclude employees already selected as successor for OTHER positions
+            $excludedPegawaiIds = Suksesor::where('peta_jabatan_id', '!=', $peta_jabatan_id)
+                ->pluck('pegawai_id')
+                ->toArray();
+
+            $pegawaiQuery = Pegawai::with('penilaian')
                 ->join('jenis_jabatan', 'pegawai.jenis_jabatan_id', '=', 'jenis_jabatan.id')
-                ->whereIn('jenis_jabatan.name', $typesToUse)
+                ->whereIn('jenis_jabatan.name', $typesToUse);
+
+            if (! empty($excludedPegawaiIds)) {
+                $pegawaiQuery->whereNotIn('pegawai.id', $excludedPegawaiIds);
+            }
+
+            $pegawaiCandidates = $pegawaiQuery
                 ->select('pegawai.*', 'jenis_jabatan.name as jenis_jabatan')
                 ->get();
 
@@ -520,7 +569,8 @@ class PegawaiController extends Controller
                 'Jabatan Administrator' => ['total' => 0.6, 'teknis' => 0.4],
                 'Jabatan Pengawas' => ['total' => 0.5, 'teknis' => 0.5],
             ];
-            $weights = $weightMap[$mappedType] ?? null;
+            
+            $weights = $mappedType == 'Jabatan Pimpinan Tinggi Utama' ? $weightMap['Jabatan Pimpinan Tinggi Madya'] : $weightMap[$mappedType] ?? null;
 
             $kotakList = $daftarKotak->kotak ?? null;
 
@@ -547,6 +597,35 @@ class PegawaiController extends Controller
 
             $candidates = [];
             foreach ($pegawaiCandidates as $item) {
+                // Filter by rumpun jabatan if setting is enabled and target position is under Deputi
+                if ($sesuaiRumpunJabatan && $targetRumpun !== null) {
+                    $candidateRumpun = $this->getPegawaiRumpunDeputi($item, $allPetaMap);
+                    if ($candidateRumpun !== $targetRumpun) {
+                        continue;
+                    }
+                }
+
+                // Filter by Pangkat / Golongan minimal
+                if ($requiredGolonganRank > 0) {
+                    $pegawaiRank = $this->getGolonganRank($item->golongan);
+                    if ($pegawaiRank < $requiredGolonganRank) {
+                        continue;
+                    }
+                }
+
+                // Filter by Usia
+                $pegawaiUsia = $this->getUsiaFromNipOrDob($item->nip, $item->json['tglLahir'] ?? null);
+                if ($minimalUsia !== null) {
+                    if ($pegawaiUsia === null || $pegawaiUsia < $minimalUsia) {
+                        continue;
+                    }
+                }
+                if ($maksimalUsia !== null) {
+                    if ($pegawaiUsia === null || $pegawaiUsia > $maksimalUsia) {
+                        continue;
+                    }
+                }
+
                 $penObj = $item->penilaian ? $item->penilaian->penilaian : null;
 
                 // Check if pegawai meets syarat suksesi requirements
@@ -624,8 +703,8 @@ class PegawaiController extends Controller
                 // total = average of potensial and kinerja
                 $total = ($nilaiPot + $nilaiKin) / 2;
 
-                // nilai_akhir_talenta with weighting based on vacant position type
-                $nilaiAkhirTalenta = $weights
+                // nilai_akhir_talenta: use kompetensi teknis weights only if setting is enabled
+                $nilaiAkhirTalenta = ($gunakanKompetensiTeknis && $weights)
                     ? round($total * $weights['total'] + $nilaiKompetensiTeknis * $weights['teknis'], 2)
                     : round($total, 2);
 
@@ -634,6 +713,15 @@ class PegawaiController extends Controller
 
                 $dob = $item->json['tglLahir'] ?? null;
                 $dobTs = $dob ? strtotime($dob) : null;
+                if (! $dobTs && $item->nip && strlen(preg_replace('/\D/', '', $item->nip)) >= 8) {
+                    $nipClean = preg_replace('/\D/', '', $item->nip);
+                    $y = substr($nipClean, 0, 4);
+                    $m = substr($nipClean, 4, 2);
+                    $d = substr($nipClean, 6, 2);
+                    if (checkdate((int) $m, (int) $d, (int) $y)) {
+                        $dobTs = strtotime("$y-$m-$d");
+                    }
+                }
 
                 $candidates[] = [
                     'item' => $item,
@@ -645,6 +733,7 @@ class PegawaiController extends Controller
                     'nilai_akhir_talenta' => $nilaiAkhirTalenta,
                     'kotak_rank' => $kotakRank,
                     'dob_ts' => $dobTs,
+                    'usia' => $pegawaiUsia,
                 ];
             }
 
@@ -675,10 +764,14 @@ class PegawaiController extends Controller
 
             $top = array_slice($candidates, 0, 3);
 
-            $data = array_map(function ($c) {
+            $currentSuksesor = Suksesor::where('peta_jabatan_id', $peta_jabatan_id)->first();
+            $currentSuksesorPegawaiId = $currentSuksesor?->pegawai_id;
+
+            $data = array_map(function ($c) use ($currentSuksesorPegawaiId, $gunakanKompetensiTeknis) {
                 $item = $c['item'];
 
                 return [
+                    'id' => $item->id,
                     'nip' => $item->nip,
                     'nama' => $item->name,
                     'email' => $item->email,
@@ -687,6 +780,7 @@ class PegawaiController extends Controller
                     'jabatan' => $item->jabatan_name,
                     'golongan' => $item->golongan,
                     'jenis_jabatan' => $item->jenis_jabatan,
+                    'usia' => $c['usia'],
                     'penilaian' => $c['penObj'],
                     'nilai_potensial' => round($c['nilai_pot'], 2),
                     'nilai_kinerja' => round($c['nilai_kin'], 2),
@@ -694,12 +788,22 @@ class PegawaiController extends Controller
                     'nilai_talenta' => $c['total'],
                     'nilai_akhir_talenta' => $c['nilai_akhir_talenta'],
                     'kotak_rank' => $c['kotak_rank'],
+                    'is_suksesor' => $currentSuksesorPegawaiId && ($item->id === $currentSuksesorPegawaiId),
+                    'gunakan_kompetensi_teknis' => $gunakanKompetensiTeknis,
                 ];
             }, $top);
 
             return response()->json([
                 'success' => true,
                 'data' => $data,
+                'pengaturan' => [
+                    'gunakan_kompetensi_teknis' => $gunakanKompetensiTeknis,
+                    'sesuai_rumpun_jabatan' => $sesuaiRumpunJabatan,
+                    'target_rumpun' => $targetRumpun,
+                    'minimal_usia' => $minimalUsia,
+                    'maksimal_usia' => $maksimalUsia,
+                    'pangkat_golongan' => $syaratPangkatGolongan,
+                ],
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -708,5 +812,189 @@ class PegawaiController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Determine whether a peta_jabatan is under Deputi Bidang Administrasi or Deputi Bidang Persidangan.
+     * Rules:
+     * - Sekretaris Jenderal DPD RI is always exempt (returns null for both promosi and rotasi).
+     * - Deputi Bidang Administrasi / Deputi Bidang Persidangan:
+     *     - Promosi ($isRotasi = false): suksesor must come from within the same Deputi ('administrasi' or 'persidangan').
+     *     - Rotasi ($isRotasi = true): exempt across Madya (returns null).
+     * - Positions below Deputi: returns 'administrasi' or 'persidangan' for both promosi and rotasi.
+     * - Other positions (Inspektorat, Kantor Daerah, etc.): returns null.
+     */
+    private function getRumpunDeputi(?PetaJabatan $peta, array $allPetaMap, bool $isRotasi = false): ?string
+    {
+        if (! $peta) {
+            return null;
+        }
+
+        $namaPeta = strtolower($peta->nama_jabatan ?? '');
+
+        // Sekretaris Jenderal is always exempt (both promosi and rotasi)
+        if (strpos($namaPeta, 'sekretaris jenderal') !== false) {
+            return null;
+        }
+
+        // Deputi positions themselves
+        $isDeputiAdm = (strpos($namaPeta, 'deputi bidang administrasi') !== false);
+        $isDeputiPers = (strpos($namaPeta, 'deputi bidang persidangan') !== false);
+
+        if ($isDeputiAdm || $isDeputiPers) {
+            // Rotasi is exempt for Deputi
+            if ($isRotasi) {
+                return null;
+            }
+
+            // Promosi for Deputi: must come from within the same Deputi rumpun
+            return $isDeputiAdm ? 'administrasi' : 'persidangan';
+        }
+
+        // For positions below Deputi, traverse up the parent tree to find Eselon I / JPT Madya parent
+        $currId = $peta->parent_id;
+        while ($currId && isset($allPetaMap[$currId])) {
+            $parent = $allPetaMap[$currId];
+            $parentNama = strtolower($parent->nama_jabatan ?? '');
+            if (strpos($parentNama, 'deputi bidang administrasi') !== false) {
+                return 'administrasi';
+            }
+            if (strpos($parentNama, 'deputi bidang persidangan') !== false) {
+                return 'persidangan';
+            }
+            if (strpos($parentNama, 'sekretaris jenderal') !== false) {
+                return null;
+            }
+            $currId = $parent->parent_id;
+        }
+
+        return null;
+    }
+
+    /**
+     * Determine the rumpun (Deputi) of an employee based on peta_jabatan or unit_organisasi_name.
+     */
+    private function getPegawaiRumpunDeputi($pegawai, array $allPetaMap): ?string
+    {
+        // 1. Check direct peta_jabatan_id
+        if ($pegawai->peta_jabatan_id && isset($allPetaMap[$pegawai->peta_jabatan_id])) {
+            $curr = $allPetaMap[$pegawai->peta_jabatan_id];
+            while ($curr) {
+                $nama = strtolower($curr->nama_jabatan ?? '');
+                if (strpos($nama, 'deputi bidang administrasi') !== false) {
+                    return 'administrasi';
+                }
+                if (strpos($nama, 'deputi bidang persidangan') !== false) {
+                    return 'persidangan';
+                }
+                if (strpos($nama, 'sekretaris jenderal') !== false) {
+                    return null;
+                }
+                $curr = ($curr->parent_id && isset($allPetaMap[$curr->parent_id])) ? $allPetaMap[$curr->parent_id] : null;
+            }
+        }
+
+        // 2. Fallback: match by unit_organisasi_name
+        if ($pegawai->unit_organisasi_name) {
+            $unitLower = strtolower(trim($pegawai->unit_organisasi_name));
+
+            // Try exact match on unit_kerja or nama_jabatan first
+            foreach ($allPetaMap as $p) {
+                $pNama = strtolower(trim($p->nama_jabatan ?? ''));
+                $pUnit = strtolower(trim($p->unit_kerja ?? ''));
+                if ($pUnit === $unitLower || $pNama === $unitLower) {
+                    $curr = $p;
+                    while ($curr) {
+                        $nama = strtolower($curr->nama_jabatan ?? '');
+                        if (strpos($nama, 'deputi bidang administrasi') !== false) {
+                            return 'administrasi';
+                        }
+                        if (strpos($nama, 'deputi bidang persidangan') !== false) {
+                            return 'persidangan';
+                        }
+                        if (strpos($nama, 'sekretaris jenderal') !== false) {
+                            return null;
+                        }
+                        $curr = ($curr->parent_id && isset($allPetaMap[$curr->parent_id])) ? $allPetaMap[$curr->parent_id] : null;
+                    }
+                }
+            }
+
+            // Substring fallback
+            foreach ($allPetaMap as $p) {
+                $pNama = strtolower(trim($p->nama_jabatan ?? ''));
+                $pUnit = strtolower(trim($p->unit_kerja ?? ''));
+                if (($pUnit && strpos($unitLower, $pUnit) !== false) || ($pNama && strpos($unitLower, $pNama) !== false)) {
+                    $curr = $p;
+                    while ($curr) {
+                        $nama = strtolower($curr->nama_jabatan ?? '');
+                        if (strpos($nama, 'deputi bidang administrasi') !== false) {
+                            return 'administrasi';
+                        }
+                        if (strpos($nama, 'deputi bidang persidangan') !== false) {
+                            return 'persidangan';
+                        }
+                        if (strpos($nama, 'sekretaris jenderal') !== false) {
+                            return null;
+                        }
+                        $curr = ($curr->parent_id && isset($allPetaMap[$curr->parent_id])) ? $allPetaMap[$curr->parent_id] : null;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Calculate age from NIP (first 8 digits: YYYYMMDD) or fallback to tglLahir.
+     */
+    private function getUsiaFromNipOrDob(?string $nip, ?string $tglLahir = null): ?int
+    {
+        if ($nip) {
+            $nipClean = preg_replace('/\D/', '', $nip);
+            if (strlen($nipClean) >= 8) {
+                $year = (int) substr($nipClean, 0, 4);
+                $month = (int) substr($nipClean, 4, 2);
+                $day = (int) substr($nipClean, 6, 2);
+
+                if ($year >= 1900 && $year <= (int) date('Y') && checkdate($month, $day, $year)) {
+                    try {
+                        return (int) \Carbon\Carbon::create($year, $month, $day)->age;
+                    } catch (\Exception $e) {
+                    }
+                }
+            }
+        }
+
+        if ($tglLahir) {
+            try {
+                return (int) \Carbon\Carbon::parse($tglLahir)->age;
+            } catch (\Exception $e) {
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Convert standard civil service golongan (I/a through IV/e) to numerical rank (1-17).
+     */
+    private function getGolonganRank(?string $golongan): int
+    {
+        if (! $golongan) {
+            return 0;
+        }
+
+        $map = [
+            'i/a' => 1, 'i/b' => 2, 'i/c' => 3, 'i/d' => 4,
+            'ii/a' => 5, 'ii/b' => 6, 'ii/c' => 7, 'ii/d' => 8,
+            'iii/a' => 9, 'iii/b' => 10, 'iii/c' => 11, 'iii/d' => 12,
+            'iv/a' => 13, 'iv/b' => 14, 'iv/c' => 15, 'iv/d' => 16, 'iv/e' => 17,
+        ];
+
+        $clean = strtolower(trim($golongan));
+
+        return $map[$clean] ?? 0;
     }
 }

@@ -71,4 +71,9 @@ class Pegawai extends Model
     {
         return $this->hasOne(Penilaian::class, 'pegawai_id', 'id');
     }
+
+    public function suksesor()
+    {
+        return $this->hasOne(Suksesor::class, 'pegawai_id', 'id');
+    }
 }

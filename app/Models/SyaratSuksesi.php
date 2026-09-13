@@ -14,10 +14,20 @@ class SyaratSuksesi extends Model
     protected $fillable = [
         'jabatan_id',
         'syarat',
+        'gunakan_kompetensi_teknis',
+        'sesuai_rumpun_jabatan',
+        'minimal_usia',
+        'maksimal_usia',
+        'pangkat_golongan',
     ];
 
     protected $casts = [
         'syarat' => 'array',
+        'gunakan_kompetensi_teknis' => 'boolean',
+        'sesuai_rumpun_jabatan' => 'boolean',
+        'minimal_usia' => 'integer',
+        'maksimal_usia' => 'integer',
+        'pangkat_golongan' => 'string',
     ];
 
     public function petaJabatan()

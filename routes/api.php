@@ -15,6 +15,7 @@ use App\Http\Controllers\SettingBobot360Controller;
 use App\Http\Controllers\StandarKompetensiMskController;
 use App\Http\Controllers\StatistikController;
 use App\Http\Controllers\SubIndikatorController;
+use App\Http\Controllers\SuksesorController;
 use App\Http\Controllers\SyaratSuksesiController;
 use App\Http\Controllers\UmpanBalik360Controller;
 use Illuminate\Support\Facades\Route;
@@ -67,6 +68,12 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
 
     // Syarat Suksesi Routes
     Route::apiResource('syarat-suksesi', SyaratSuksesiController::class);
+
+    // Suksesor Routes
+    Route::get('suksesor', [SuksesorController::class, 'index']);
+    Route::get('suksesor/{peta_jabatan_id}', [SuksesorController::class, 'show']);
+    Route::post('suksesor', [SuksesorController::class, 'store']);
+    Route::delete('suksesor/{peta_jabatan_id}', [SuksesorController::class, 'destroy']);
 
     // Statistik Routes
     Route::get('statistik', [StatistikController::class, 'index']);

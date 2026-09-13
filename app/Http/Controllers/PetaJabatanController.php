@@ -22,7 +22,7 @@ class PetaJabatanController extends Controller
             // Read jabatan_kosong filter flag (default false) and detect if param present
             $jabatanKosong = filter_var($request->get('jabatan_kosong', 'false'), FILTER_VALIDATE_BOOLEAN);
             $hasJabatanKosongParam = $request->has('jabatan_kosong');
-            $query = PetaJabatan::orderBy('level')->orderBy('order_index');
+            $query = PetaJabatan::with(['suksesor.pegawai', 'syaratSuksesi'])->orderBy('level')->orderBy('order_index');
             $perPage = max(1, (int) $request->get('per_page', 10));
             $page = max(1, (int) $request->get('page', 1));
 
@@ -238,7 +238,7 @@ class PetaJabatanController extends Controller
      */
     public function show(string $id)
     {
-        $petaJabatan = PetaJabatan::find($id);
+        $petaJabatan = PetaJabatan::with(['suksesor.pegawai', 'syaratSuksesi'])->find($id);
 
         if (!$petaJabatan) {
             return response()->json([
