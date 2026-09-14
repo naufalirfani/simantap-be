@@ -178,6 +178,11 @@ class SyncPetaJabatan extends Command
                     ->where('id', $item['id'])
                     ->exists();
 
+                $pejabatSt = is_array($item['pejabat_st'] ?? null) ? $item['pejabat_st'] : [];
+                $bezetting = isset($item['pejabat_st']) && is_array($item['pejabat_st'])
+                    ? count($item['pejabat_st'])
+                    : ($item['bezetting'] ?? 0);
+
                 $dataToSync = [
                     'id' => $item['id'],
                     'parent_id' => $item['parent_id'],
@@ -187,7 +192,7 @@ class SyncPetaJabatan extends Command
                     'level' => $item['level'] ?? 0,
                     // Set order_index strictly according to response order (1-based)
                     'order_index' => $position,
-                    'bezetting' => $item['bezetting'] ?? 0,
+                    'bezetting' => $bezetting,
                     'kebutuhan_pegawai' => $item['kebutuhan_pegawai'] ?? 0,
                     'is_pusat' => $item['is_pusat'] ?? false,
                     'jenis_jabatan' => $item['jenis_jabatan'] ?? null,
@@ -198,7 +203,7 @@ class SyncPetaJabatan extends Command
                             'nip' => $p['nip'] ?? null,
                             'name' => $p['name'] ?? null,
                         ];
-                    }, $item['pejabat'] ?? [])),
+                    }, $pejabatSt)),
                     'updated_at' => now(),
                 ];
 
