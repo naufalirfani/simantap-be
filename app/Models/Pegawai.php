@@ -25,6 +25,7 @@ class Pegawai extends Model
         'jenis_jabatan_id',
         'peta_jabatan_id',
         'golongan',
+        'role',
         'json',
         'avatar',
         'riwayat_jabatan',

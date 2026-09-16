@@ -87,7 +87,8 @@ class PegawaiController extends Controller
                         ->orWhere('unit_organisasi_name', 'ilike', "%{$k}%")
                         ->orWhere('jabatan_name', 'ilike', "%{$k}%")
                         ->orWhere('jenis_jabatan.name', 'ilike', "%{$k}%")
-                        ->orWhere('golongan', 'ilike', "%{$k}%");
+                        ->orWhere('golongan', 'ilike', "%{$k}%")
+                        ->orWhere('pegawai.role', 'ilike', "%{$k}%");
                 });
             }
 
@@ -106,6 +107,14 @@ class PegawaiController extends Controller
             if ($request->filled('golongan')) {
                 $golongan = $request->get('golongan');
                 $query->whereRaw('lower(golongan) = ?', [strtolower($golongan)]);
+            }
+            if ($request->filled('role')) {
+                $role = strtolower(trim($request->get('role')));
+                if ($role === 'pns') {
+                    $query->whereIn(\Illuminate\Support\Facades\DB::raw('lower(pegawai.role)'), ['pns', 'cpns']);
+                } else {
+                    $query->whereRaw('lower(pegawai.role) = ?', [$role]);
+                }
             }
             if ($request->filled('sudah_asesmen')) {
                 $sudah = $request->boolean('sudah_asesmen');
@@ -182,6 +191,7 @@ class PegawaiController extends Controller
                     'jenis_jabatan_id' => $item->jenis_jabatan_id,
                     'jenis_jabatan' => str_replace('Jabatan Fungsional', 'JF', str_replace('Jabatan Pimpinan Tinggi', 'JPT', $item->jenis_jabatan)),
                     'golongan' => $item->golongan,
+                    'role' => $item->role,
                     'penilaian' => $penObj,
                 ];
 
@@ -271,6 +281,7 @@ class PegawaiController extends Controller
                 'jenis_jabatan_id' => $pegawai->jenis_jabatan_id,
                 'jenis_jabatan' => $pegawai->jenis_jabatan,
                 'golongan' => $pegawai->golongan,
+                'role' => $pegawai->role,
                 'json' => $pegawai->json,
                 'avatar' => $pegawai->avatar,
                 'lokasi_kerja' => $pegawai->lokasi_kerja,

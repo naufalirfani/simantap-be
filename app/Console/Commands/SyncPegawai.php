@@ -235,6 +235,7 @@ class SyncPegawai extends Command
                         'jenis_jabatan_id' => $jenisJabatanId,
                         'peta_jabatan_id' => $petaJabatanId,
                         'golongan' => $item['golongan'] ?? null,
+                        'role' => $item['role'] ?? ($item['json']['role'] ?? ($item['json']['statusPegawai'] ?? null)),
                         'json' => $item['json'] ?? [],
                         'avatar' => $item['avatar'] ?? null,
                         'riwayat_pendidikan' => $item['riwayat_pendidikan'] ?? null,
