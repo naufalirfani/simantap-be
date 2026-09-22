@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Pegawai;
 use App\Models\Penilaian;
 use App\Models\SubIndikator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -102,6 +103,7 @@ class UmpanBalik360Service
                 ->withOptions([
                     'verify' => false,
                 ])
+                ->connectTimeout(15)
                 ->timeout(60)
                 ->get("{$baseUrl}/penilaian-pegawai", [
                     'with_pagination' => 'false',
@@ -194,8 +196,27 @@ class UmpanBalik360Service
             })
             ->first();
 
+        // 1. Bulk prefetch all pegawais matching grouped NIPs
+        $nips = array_keys($grouped);
+        $pegawais = Pegawai::with('jenisJabatan')
+            ->whereIn('nip', $nips)
+            ->get()
+            ->keyBy('nip');
+
+        // 2. Bulk prefetch existing penilaians for these pegawais
+        $pegawaiIds = $pegawais->pluck('id')->filter()->all();
+        $penilaians = Penilaian::whereIn('pegawai_id', $pegawaiIds)
+            ->get()
+            ->keyBy('pegawai_id');
+
+        $pegawaisToSave = [];
+        $penilaiansToSave = [];
+
+        $hasInstrumen = $sub360 && $sub360->instrumens && $sub360->instrumens->isNotEmpty();
+        $bobot360 = $sub360 ? (float) ($sub360->bobot ?? 0) : 0;
+
         foreach ($grouped as $nip => $periodeMap) {
-            $pegawai = Pegawai::with('jenisJabatan')->where('nip', $nip)->first();
+            $pegawai = $pegawais->get($nip);
 
             if (! $pegawai) {
                 $notFoundNips[] = $nip;
@@ -228,7 +249,9 @@ class UmpanBalik360Service
             }
 
             $pegawai->riwayat_umpan_balik = $riwayat;
-            $pegawai->save();
+            if ($pegawai->isDirty()) {
+                $pegawaisToSave[] = $pegawai;
+            }
 
             // Update penilaians table for SubIndikator "Umpan Balik 360 Derajat"
             if ($sub360) {
@@ -243,19 +266,18 @@ class UmpanBalik360Service
 
                 if ($latestRekap && isset($latestRekap['nilai_akhir'])) {
                     $nilai360 = (float) $latestRekap['nilai_akhir'];
-                    $hasInstrumen = $sub360->instrumens && $sub360->instrumens->isNotEmpty();
                     $nilaiPenilaian = $hasInstrumen
                         ? ($this->resolveNilaiFromInstrumen($nilai360, $sub360->instrumens) ?? $nilai360)
                         : $nilai360;
 
-                    $bobot360 = (float) ($sub360->bobot ?? 0);
                     $hasil360 = round($nilaiPenilaian * ($bobot360 / 100.0), 2);
 
-                    $penilaianRec = Penilaian::where('pegawai_id', $pegawai->id)->first();
+                    $penilaianRec = $penilaians->get($pegawai->id);
                     if (! $penilaianRec) {
                         $penilaianRec = new Penilaian;
                         $penilaianRec->pegawai_id = $pegawai->id;
                         $penData = [];
+                        $penilaians->put($pegawai->id, $penilaianRec);
                     } else {
                         $penData = is_array($penilaianRec->penilaian) ? $penilaianRec->penilaian : [];
                     }
@@ -266,11 +288,25 @@ class UmpanBalik360Service
                     ];
 
                     $penilaianRec->penilaian = $penData;
-                    $penilaianRec->save();
+                    if ($penilaianRec->isDirty() || ! $penilaianRec->exists) {
+                        $penilaiansToSave[] = $penilaianRec;
+                    }
                 }
             }
 
             $updatedCount++;
+        }
+
+        // Persist dirty models inside a transaction to prevent multiple autocommits
+        if (! empty($pegawaisToSave) || ! empty($penilaiansToSave)) {
+            DB::transaction(function () use ($pegawaisToSave, $penilaiansToSave) {
+                foreach ($pegawaisToSave as $p) {
+                    $p->save();
+                }
+                foreach ($penilaiansToSave as $pen) {
+                    $pen->save();
+                }
+            });
         }
 
         return [
@@ -367,37 +403,33 @@ class UmpanBalik360Service
         }
 
         // Question 22 onwards (collect array of answers)
-        // Find all question keys >= question22 present in evaluations
-        $textQuestionKeys = [];
+        $textAnswers = [];
         foreach ($evaluations as $eval) {
             $pen = $eval['penilaian'] ?? [];
             if (! is_array($pen)) {
                 continue;
             }
-            foreach (array_keys($pen) as $k) {
-                if (preg_match('/^question(\d+)$/i', $k, $m)) {
-                    $qNum = (int) $m[1];
+            foreach ($pen as $k => $v) {
+                if (str_starts_with($k, 'question')) {
+                    $qNum = (int) substr($k, 8);
                     if ($qNum >= 22) {
-                        $textQuestionKeys[$k] = true;
+                        if (! isset($textAnswers[$k])) {
+                            $textAnswers[$k] = [];
+                        }
+                        $ans = trim((string) $v);
+                        if ($ans !== '') {
+                            $textAnswers[$k][] = $ans;
+                        }
                     }
                 }
             }
         }
 
-        ksort($textQuestionKeys, SORT_NATURAL);
-
-        foreach (array_keys($textQuestionKeys) as $qKey) {
-            $answers = [];
-            foreach ($evaluations as $eval) {
-                $pen = $eval['penilaian'] ?? [];
-                if (isset($pen[$qKey])) {
-                    $ans = trim((string) $pen[$qKey]);
-                    if ($ans !== '') {
-                        $answers[] = $ans;
-                    }
-                }
+        if (! empty($textAnswers)) {
+            ksort($textAnswers, SORT_NATURAL);
+            foreach ($textAnswers as $qKey => $answers) {
+                $penilaianRekap[$qKey] = $answers;
             }
-            $penilaianRekap[$qKey] = $answers;
         }
 
         // Calculate overall period final score (average of question1..question21)
@@ -467,13 +499,21 @@ class UmpanBalik360Service
         }
 
         if (is_string($val)) {
+            if (str_starts_with($val, 'Item ')) {
+                $num = (float) substr($val, 5);
+
+                return ($num >= 1 && $num <= 5) ? $num : null;
+            }
+
             if (preg_match('/Item\s*(\d+)/i', $val, $m)) {
                 $num = (float) $m[1];
 
                 return ($num >= 1 && $num <= 5) ? $num : null;
             }
-            if (preg_match('/^(\d+)$/', trim($val), $m)) {
-                $num = (float) $m[1];
+
+            $trimmed = trim($val);
+            if (ctype_digit($trimmed)) {
+                $num = (float) $trimmed;
 
                 return ($num >= 1 && $num <= 5) ? $num : null;
             }
@@ -762,7 +802,19 @@ class UmpanBalik360Service
         }
 
         $pegawais = $query->get();
+        if ($pegawais->isEmpty()) {
+            return 0;
+        }
+
+        $pegawaiIds = $pegawais->pluck('id')->filter()->all();
+        $penilaians = Penilaian::whereIn('pegawai_id', $pegawaiIds)
+            ->get()
+            ->keyBy('pegawai_id');
+
+        $hasInstrumen = $sub360->instrumens && $sub360->instrumens->isNotEmpty();
+        $bobot360 = (float) ($sub360->bobot ?? 0);
         $updated = 0;
+        $penilaiansToSave = [];
 
         foreach ($pegawais as $pegawai) {
             $riwayat = is_array($pegawai->riwayat_umpan_balik) ? $pegawai->riwayat_umpan_balik : [];
@@ -778,19 +830,18 @@ class UmpanBalik360Service
 
             if ($latestRekap && isset($latestRekap['nilai_akhir'])) {
                 $nilai360 = (float) $latestRekap['nilai_akhir'];
-                $hasInstrumen = $sub360->instrumens && $sub360->instrumens->isNotEmpty();
                 $nilaiPenilaian = $hasInstrumen
                     ? ($this->resolveNilaiFromInstrumen($nilai360, $sub360->instrumens) ?? $nilai360)
                     : $nilai360;
 
-                $bobot360 = (float) ($sub360->bobot ?? 0);
                 $hasil360 = round($nilaiPenilaian * ($bobot360 / 100.0), 2);
 
-                $penilaianRec = Penilaian::where('pegawai_id', $pegawai->id)->first();
+                $penilaianRec = $penilaians->get($pegawai->id);
                 if (! $penilaianRec) {
                     $penilaianRec = new Penilaian;
                     $penilaianRec->pegawai_id = $pegawai->id;
                     $penData = [];
+                    $penilaians->put($pegawai->id, $penilaianRec);
                 } else {
                     $penData = is_array($penilaianRec->penilaian) ? $penilaianRec->penilaian : [];
                 }
@@ -801,9 +852,19 @@ class UmpanBalik360Service
                 ];
 
                 $penilaianRec->penilaian = $penData;
-                $penilaianRec->save();
+                if ($penilaianRec->isDirty() || ! $penilaianRec->exists) {
+                    $penilaiansToSave[] = $penilaianRec;
+                }
                 $updated++;
             }
+        }
+
+        if (! empty($penilaiansToSave)) {
+            DB::transaction(function () use ($penilaiansToSave) {
+                foreach ($penilaiansToSave as $pen) {
+                    $pen->save();
+                }
+            });
         }
 
         return $updated;
