@@ -46,118 +46,151 @@ class PetaJabatanController extends Controller
                 return $a;
             }, $models);
 
-            // If jabatan_kosong param provided, filter items accordingly (only focus on selected ESELON types)
-            if ($hasJabatanKosongParam) {
-                $allowedTypes = [
-                    'ESELON I / JPT MADYA',
-                    'ESELON II / JPT PRATAMA',
-                    'ESELON III / ADMINISTRATOR',
-                    'ESELON IV / PENGAWAS',
+            $rawKategori = $request->get('kategori_jabatan_kosong') ?? $request->get('kategori');
+            $kategoriFilter = null;
+            if ($rawKategori) {
+                $cleanKat = strtolower(trim((string) $rawKategori));
+                $aliasMap = [
+                    'sudah_kosong' => 'sudah_kosong',
+                    'sudah kosong' => 'sudah_kosong',
+                    'kosong' => 'sudah_kosong',
+                    '6_bulan' => '6_bulan',
+                    '6 bulan' => '6_bulan',
+                    'akan_kosong_6_bulan' => '6_bulan',
+                    'akan kosong dalam 6 bulan' => '6_bulan',
+                    'dalam_6_bulan' => '6_bulan',
+                    'dalam 6 bulan' => '6_bulan',
+                    '1_tahun' => '1_tahun',
+                    '1 tahun' => '1_tahun',
+                    'dalam_1_tahun' => '1_tahun',
+                    'dalam 1 tahun' => '1_tahun',
+                    'akan_kosong_1_tahun' => '1_tahun',
+                    'akan kosong dalam 1 tahun' => '1_tahun',
+                    '2_tahun' => '2_tahun',
+                    '2 tahun' => '2_tahun',
+                    'dalam_2_tahun' => '2_tahun',
+                    'dalam 2 tahun' => '2_tahun',
+                    'akan_kosong_2_tahun' => '2_tahun',
+                    'akan kosong dalam 2 tahun' => '2_tahun',
                 ];
-
-                $items = array_values(array_filter($items, function ($a) use ($allowedTypes, $jabatanKosong) {
-                    $jenis = strtoupper(trim($a['jenis_jabatan'] ?? ''));
-
-                    // Only consider the allowed ESELON types; others are not considered vacant
-                    if (!in_array($jenis, $allowedTypes, true)) {
-                        $isVacant = false;
-                        return $jabatanKosong ? $isVacant : !$isVacant;
-                    }
-
-                    $bezetting = isset($a['bezetting']) ? (int) $a['bezetting'] : 0;
-                    $kebutuhan = isset($a['kebutuhan_pegawai']) ? (int) $a['kebutuhan_pegawai'] : 0;
-
-                    if ($bezetting === 0) {
-                        $isVacant = true;
-                        return $jabatanKosong ? $isVacant : !$isVacant;
-                    }
-
-                    if (($kebutuhan - $bezetting) > 0) {
-                        $isVacant = true;
-                        return $jabatanKosong ? $isVacant : !$isVacant;
-                    }
-
-                    $pej = $a['pejabat'] ?? [];
-                    if (!is_array($pej) || count($pej) === 0) {
-                        $isVacant = true;
-                        return $jabatanKosong ? $isVacant : !$isVacant;
-                    }
-
-                    // pick the pejabat with largest numeric NIP when multiple
-                    $selected = null;
-                    foreach ($pej as $p) {
-                        $nip = isset($p['nip']) ? preg_replace('/[^0-9]/', '', $p['nip']) : '';
-                        if ($nip === '') continue;
-                        if ($selected === null) {
-                            $selected = $nip;
-                        } elseif (strcmp($nip, $selected) > 0) {
-                            $selected = $nip;
-                        }
-                    }
-
-                    if ($selected === null || strlen($selected) < 8) {
-                        $isVacant = false;
-                        return $jabatanKosong ? $isVacant : !$isVacant;
-                    }
-
-                    $retirementAge = in_array($jenis, ['ESELON I / JPT MADYA', 'ESELON II / JPT PRATAMA'], true) ? 60 : 58;
-
-                    $dobStr = substr($selected, 0, 8); // YYYYMMDD
-                    try {
-                        $dob = Carbon::createFromFormat('Ymd', $dobStr);
-                    } catch (\Exception $e) {
-                        $isVacant = false;
-                        return $jabatanKosong ? $isVacant : !$isVacant;
-                    }
-
-                    $retirementDate = $dob->copy()->addYears($retirementAge);
-                    // vacant if retirement date is within next 1 year
-                    $isVacant = $retirementDate->lte(Carbon::now()->addYear());
-
-                    if ($jenis === 'ESELON I / JPT MADYA') {
-                        return true; // always include ESELON I regardless of vacancy status
-                    }
-
-                    return $jabatanKosong ? $isVacant : !$isVacant;
-                }));
-                // after filtering, enrich each pejabat entry with tglLahir, tanggal_pensiun and sisa_masa_kerja
-                foreach ($items as &$a) {
-                    $pejArray = $a['pejabat'] ?? [];
-                    $jenis = strtoupper(trim($a['jenis_jabatan'] ?? ''));
-                    $retirementAge = in_array($jenis, ['ESELON I / JPT MADYA', 'ESELON II / JPT PRATAMA'], true) ? 60 : 58;
-
-                    foreach ($pejArray as &$p) {
-                        $p = is_array($p) ? $p : (is_object($p) ? (array)$p : ['nama' => (string)$p]);
-                        $nipRaw = isset($p['nip']) ? (string)$p['nip'] : '';
-                        $nipDigits = preg_replace('/[^0-9]/', '', $nipRaw);
-                        $p['tglLahir'] = null;
-                        $p['tanggal_pensiun'] = null;
-                        $p['sisa_masa_kerja'] = null;
-                        $p['sisa_masa_kerja_days'] = null;
-
-                        if (strlen($nipDigits) >= 8) {
-                            $dobStr = substr($nipDigits, 0, 8); // YYYYMMDD
-                            try {
-                                $dob = Carbon::createFromFormat('Ymd', $dobStr);
-                                $p['tglLahir'] = $dob->toDateString();
-                                $retirementDate = $dob->copy()->addYears($retirementAge);
-                                $p['tanggal_pensiun'] = $retirementDate->toDateString();
-                                if ($retirementDate->lte(Carbon::now())) {
-                                    $p['sisa_masa_kerja'] = '0 tahun 0 bulan';
-                                    $p['sisa_masa_kerja_days'] = 0;
-                                } else {
-                                    $diff = Carbon::now()->diff($retirementDate);
-                                    $p['sisa_masa_kerja'] = sprintf('%d tahun %d bulan', $diff->y, $diff->m);
-                                    $p['sisa_masa_kerja_days'] = Carbon::now()->diffInDays($retirementDate);
-                                }
-                            } catch (\Exception $e) {
-                                // leave nulls if date parse fails
-                            }
-                        }
-                    }
-
-                    $a['pejabat'] = $pejArray;
+                if (isset($aliasMap[$cleanKat])) {
+                    $kategoriFilter = $aliasMap[$cleanKat];
                 }
+            }
+
+            $allowedTypes = [
+                'ESELON I / JPT MADYA',
+                'ESELON II / JPT PRATAMA',
+                'ESELON III / ADMINISTRATOR',
+                'ESELON IV / PENGAWAS',
+            ];
+
+            $now = Carbon::now();
+            $sixMonths = $now->copy()->addMonths(6);
+            $oneYear = $now->copy()->addYear();
+            $twoYears = $now->copy()->addYears(2);
+
+            // Enrich all items with retirement info and determine kategori_jabatan_kosong
+            foreach ($items as &$a) {
+                $pejArray = $a['pejabat'] ?? [];
+                $jenis = strtoupper(trim($a['jenis_jabatan'] ?? ''));
+                $retirementAge = in_array($jenis, ['ESELON I / JPT MADYA', 'ESELON II / JPT PRATAMA'], true) ? 60 : 58;
+
+                $minDays = null;
+                $soonestRetirement = null;
+
+                foreach ($pejArray as &$p) {
+                    $p = is_array($p) ? $p : (is_object($p) ? (array) $p : ['nama' => (string) $p]);
+                    $nipRaw = isset($p['nip']) ? (string) $p['nip'] : '';
+                    $nipDigits = preg_replace('/[^0-9]/', '', $nipRaw);
+                    $p['tglLahir'] = null;
+                    $p['tanggal_pensiun'] = null;
+                    $p['sisa_masa_kerja'] = null;
+                    $p['sisa_masa_kerja_days'] = null;
+
+                    if (strlen($nipDigits) >= 8) {
+                        $dobStr = substr($nipDigits, 0, 8); // YYYYMMDD
+                        try {
+                            $dob = Carbon::createFromFormat('Ymd', $dobStr);
+                            $p['tglLahir'] = $dob->toDateString();
+                            $retirementDate = $dob->copy()->addYears($retirementAge);
+                            $p['tanggal_pensiun'] = $retirementDate->toDateString();
+                            $diffDays = $now->diffInDays($retirementDate, false);
+                            $p['sisa_masa_kerja_days'] = $diffDays;
+
+                            if ($retirementDate->lte($now)) {
+                                $p['sisa_masa_kerja'] = '0 tahun 0 bulan';
+                                $p['sisa_masa_kerja_days'] = 0;
+                            } else {
+                                $diff = $now->diff($retirementDate);
+                                $p['sisa_masa_kerja'] = sprintf('%d tahun %d bulan', $diff->y, $diff->m);
+                            }
+
+                            if ($minDays === null || $diffDays < $minDays) {
+                                $minDays = $diffDays;
+                                $soonestRetirement = $retirementDate;
+                            }
+                        } catch (\Exception $e) {
+                            // leave nulls if date parse fails
+                        }
+                    }
+                }
+                unset($p);
+
+                $a['pejabat'] = $pejArray;
+
+                // Determine kategori_jabatan_kosong
+                $category = null;
+                $categoryLabel = null;
+
+                $bezetting = isset($a['bezetting']) ? (int) $a['bezetting'] : 0;
+                $kebutuhan = isset($a['kebutuhan_pegawai']) ? (int) $a['kebutuhan_pegawai'] : 0;
+
+                if (in_array($jenis, $allowedTypes, true)) {
+                    if ($bezetting === 0 || ($kebutuhan - $bezetting) > 0 || empty($pejArray)) {
+                        $category = 'sudah_kosong';
+                        $categoryLabel = 'Sudah kosong';
+                    } elseif ($minDays !== null && $minDays <= 0) {
+                        $category = 'sudah_kosong';
+                        $categoryLabel = 'Sudah kosong';
+                    } elseif ($soonestRetirement !== null) {
+                        if ($soonestRetirement->lte($sixMonths)) {
+                            $category = '6_bulan';
+                            $categoryLabel = 'Akan kosong dalam 6 bulan';
+                        } elseif ($soonestRetirement->lte($oneYear)) {
+                            $category = '1_tahun';
+                            $categoryLabel = 'Dalam 1 tahun';
+                        } elseif ($soonestRetirement->lte($twoYears)) {
+                            $category = '2_tahun';
+                            $categoryLabel = '2 tahun';
+                        }
+                    }
+                }
+
+                $a['kategori_jabatan_kosong'] = $category;
+                $a['kategori_jabatan_kosong_label'] = $categoryLabel;
+            }
+            unset($a);
+
+            // If jabatan_kosong param provided, filter items accordingly
+            if ($hasJabatanKosongParam) {
+                $items = array_values(array_filter($items, function ($a) use ($jabatanKosong, $kategoriFilter) {
+                    $hasCategory = !empty($a['kategori_jabatan_kosong']);
+
+                    if ($jabatanKosong) {
+                        if (!$hasCategory) {
+                            return false;
+                        }
+
+                        if ($kategoriFilter !== null) {
+                            return $a['kategori_jabatan_kosong'] === $kategoriFilter;
+                        }
+
+                        return true;
+                    } else {
+                        return !$hasCategory;
+                    }
+                }));
             }
 
             $response = [

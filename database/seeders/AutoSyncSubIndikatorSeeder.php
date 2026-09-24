@@ -16,7 +16,9 @@ class AutoSyncSubIndikatorSeeder extends Seeder
         'Pengembangan Kompetensi',
         'Diklat Kepemimpinan/Keahlian/Penjenjangan',
         'Penugasan dalam Tim Kerja',
-        'Penugasan Dalam Jabatan Nondefinitif'
+        'Penugasan Dalam Jabatan Nondefinitif',
+        'Umpan Balik 360 Derajat',
+        'Penghargaan atas Capaian Kinerja',
     ];
 
     public function run(): void

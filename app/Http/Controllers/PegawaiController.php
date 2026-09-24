@@ -9,6 +9,13 @@ use App\Models\SyaratSuksesi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Color;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 
 class PegawaiController extends Controller
 {
@@ -403,12 +410,11 @@ class PegawaiController extends Controller
     }
 
     /**
-     * Recommend pegawai based on peta_jabatan_id (returns up to 3 random pegawai)
+     * Get evaluated succession candidates and settings.
      */
-    public function recommend(string $peta_jabatan_id, Request $request)
+    public function getRecommendationData(string $peta_jabatan_id, Request $request, bool $forceAll = false): array
     {
-        try {
-            $retensi = $request->boolean('retensi', false);
+        $retensi = $request->boolean('retensi', false);
             $kategoriJabatan = strtolower(trim((string) $request->get(
                 'jenis_jabatan_kategori',
                 $request->get('kategori_jabatan', $request->get('jenis_jabatan', 'keduanya'))
@@ -773,53 +779,311 @@ class PegawaiController extends Controller
                 return 0;
             });
 
-            $top = array_slice($candidates, 0, 3);
+        $showAll = $forceAll
+            || $request->boolean('all', false)
+            || $request->input('all') === 'true'
+            || $request->input('all') === '1'
+            || $request->input('show_all') === 'true'
+            || $request->input('show_all') === '1';
 
-            $currentSuksesor = Suksesor::where('peta_jabatan_id', $peta_jabatan_id)->first();
-            $currentSuksesorPegawaiId = $currentSuksesor?->pegawai_id;
+        $limit = $request->has('limit') ? (int) $request->input('limit') : null;
 
-            $data = array_map(function ($c) use ($currentSuksesorPegawaiId, $gunakanKompetensiTeknis) {
-                $item = $c['item'];
+        if ($showAll) {
+            $selectedCandidates = $candidates;
+        } elseif ($limit !== null && $limit > 0) {
+            $selectedCandidates = array_slice($candidates, 0, $limit);
+        } else {
+            $selectedCandidates = array_slice($candidates, 0, 3);
+        }
 
-                return [
-                    'id' => $item->id,
-                    'nip' => $item->nip,
-                    'nama' => $item->name,
-                    'email' => $item->email,
-                    'avatar' => $item->avatar,
-                    'unit_kerja' => $item->unit_organisasi_name,
-                    'jabatan' => $item->jabatan_name,
-                    'golongan' => $item->golongan,
-                    'jenis_jabatan' => $item->jenis_jabatan,
-                    'usia' => $c['usia'],
-                    'penilaian' => $c['penObj'],
-                    'nilai_potensial' => round($c['nilai_pot'], 2),
-                    'nilai_kinerja' => round($c['nilai_kin'], 2),
-                    'nilai_kompetensi_teknis' => $c['nilai_kompetensi_teknis'],
-                    'nilai_talenta' => $c['total'],
-                    'nilai_akhir_talenta' => $c['nilai_akhir_talenta'],
-                    'kotak_rank' => $c['kotak_rank'],
-                    'is_suksesor' => $currentSuksesorPegawaiId && ($item->id === $currentSuksesorPegawaiId),
-                    'gunakan_kompetensi_teknis' => $gunakanKompetensiTeknis,
-                ];
-            }, $top);
+        $currentSuksesor = Suksesor::where('peta_jabatan_id', $peta_jabatan_id)->first();
+        $currentSuksesorPegawaiId = $currentSuksesor?->pegawai_id;
+
+        $data = array_map(function ($c, $idx) use ($currentSuksesorPegawaiId, $gunakanKompetensiTeknis) {
+            $item = $c['item'];
+
+            return [
+                'id' => $item->id,
+                'nip' => $item->nip,
+                'nama' => $item->name,
+                'email' => $item->email,
+                'avatar' => $item->avatar,
+                'unit_kerja' => $item->unit_organisasi_name,
+                'jabatan' => $item->jabatan_name,
+                'golongan' => $item->golongan,
+                'jenis_jabatan' => $item->jenis_jabatan,
+                'usia' => $c['usia'],
+                'penilaian' => $c['penObj'],
+                'nilai_potensial' => round($c['nilai_pot'], 2),
+                'nilai_kinerja' => round($c['nilai_kin'], 2),
+                'nilai_kompetensi_teknis' => $c['nilai_kompetensi_teknis'],
+                'nilai_talenta' => $c['total'],
+                'nilai_akhir_talenta' => $c['nilai_akhir_talenta'],
+                'kotak_rank' => $c['kotak_rank'],
+                'ranking' => $idx + 1,
+                'is_suksesor' => $currentSuksesorPegawaiId && ($item->id === $currentSuksesorPegawaiId),
+                'gunakan_kompetensi_teknis' => $gunakanKompetensiTeknis,
+            ];
+        }, $selectedCandidates, array_keys($selectedCandidates));
+
+        return [
+            'peta' => $peta,
+            'candidates' => $data,
+            'total_memenuhi_syarat' => count($candidates),
+            'pengaturan' => [
+                'gunakan_kompetensi_teknis' => $gunakanKompetensiTeknis,
+                'sesuai_rumpun_jabatan' => $sesuaiRumpunJabatan,
+                'target_rumpun' => $targetRumpun,
+                'minimal_usia' => $minimalUsia,
+                'maksimal_usia' => $maksimalUsia,
+                'pangkat_golongan' => $syaratPangkatGolongan,
+            ],
+            'is_rotasi' => $retensi,
+            'kategori_jabatan' => $kategoriJabatan,
+            'current_suksesor' => $currentSuksesor,
+        ];
+    }
+
+    /**
+     * Recommend pegawai based on peta_jabatan_id
+     */
+    public function recommend(string $peta_jabatan_id, Request $request)
+    {
+        try {
+            $result = $this->getRecommendationData($peta_jabatan_id, $request);
 
             return response()->json([
                 'success' => true,
-                'data' => $data,
-                'pengaturan' => [
-                    'gunakan_kompetensi_teknis' => $gunakanKompetensiTeknis,
-                    'sesuai_rumpun_jabatan' => $sesuaiRumpunJabatan,
-                    'target_rumpun' => $targetRumpun,
-                    'minimal_usia' => $minimalUsia,
-                    'maksimal_usia' => $maksimalUsia,
-                    'pangkat_golongan' => $syaratPangkatGolongan,
-                ],
+                'data' => $result['candidates'],
+                'total_memenuhi_syarat' => $result['total_memenuhi_syarat'],
+                'pengaturan' => $result['pengaturan'],
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch recommendations',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Export recommendation data to Excel spreadsheet (.xlsx)
+     */
+    public function exportRecommend(string $peta_jabatan_id, Request $request)
+    {
+        try {
+            $result = $this->getRecommendationData($peta_jabatan_id, $request, true);
+            $peta = $result['peta'];
+            $candidates = $result['candidates'];
+            $pengaturan = $result['pengaturan'];
+            $isRotasi = $result['is_rotasi'];
+            $kategoriJabatan = $result['kategori_jabatan'];
+
+            $spreadsheet = new Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('Rekomendasi Suksesor');
+
+            // Header Judul
+            $sheet->setCellValue('A1', 'DAFTAR REKOMENDASI SUKSESOR PEGAWAI');
+            $sheet->setCellValue('A2', 'SISTEM MANAJEMEN TALENTA (SIMANTAP)');
+            $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14)->setColor(new Color('FF0D9488'));
+            $sheet->getStyle('A2')->getFont()->setItalic(true)->setSize(10)->setColor(new Color('FF64748B'));
+
+            // Metadata Jabatan
+            $namaJabatan = $peta?->nama_jabatan ?? 'Jabatan';
+            $unitKerja = $peta?->unit_kerja ?? '-';
+            $jenisJabatan = $peta?->jenis_jabatan ?? '-';
+            $kelasJabatan = $peta?->kelas_jabatan ?? '-';
+
+            $sheet->setCellValue('A4', 'Jabatan Target');
+            $sheet->setCellValue('B4', ': ' . $namaJabatan);
+            $sheet->setCellValue('G4', 'Jenis Seleksi');
+            $sheet->setCellValue('H4', ': ' . ($isRotasi ? 'Rotasi' : 'Promosi'));
+
+            $sheet->setCellValue('A5', 'Unit Kerja');
+            $sheet->setCellValue('B5', ': ' . $unitKerja);
+            $sheet->setCellValue('G5', 'Filter Jenis Jabatan');
+            $sheet->setCellValue('H5', ': ' . ucfirst($kategoriJabatan));
+
+            $sheet->setCellValue('A6', 'Jenis / Kelas');
+            $sheet->setCellValue('B6', ': ' . $jenisJabatan . ' / Kelas ' . $kelasJabatan);
+            $sheet->setCellValue('G6', 'Komp. Teknis');
+            $sheet->setCellValue('H6', ': ' . ($pengaturan['gunakan_kompetensi_teknis'] ? 'Digunakan (Berbobot)' : 'Murni Nilai Talenta'));
+
+            $sheet->setCellValue('A7', 'Syarat Golongan');
+            $sheet->setCellValue('B7', ': ' . ($pengaturan['pangkat_golongan'] ? 'Minimal ' . $pengaturan['pangkat_golongan'] : 'Semua Golongan'));
+            $sheet->setCellValue('G7', 'Rumpun Jabatan');
+            $sheet->setCellValue('H7', ': ' . ($pengaturan['sesuai_rumpun_jabatan'] && $pengaturan['target_rumpun'] ? 'Sesuai (' . ucfirst($pengaturan['target_rumpun']) . ')' : 'Semua Rumpun'));
+
+            $usiaInfo = 'Semua Usia';
+            if ($pengaturan['minimal_usia'] && $pengaturan['maksimal_usia']) {
+                $usiaInfo = $pengaturan['minimal_usia'] . ' - ' . $pengaturan['maksimal_usia'] . ' tahun';
+            } elseif ($pengaturan['minimal_usia']) {
+                $usiaInfo = 'Min. ' . $pengaturan['minimal_usia'] . ' tahun';
+            } elseif ($pengaturan['maksimal_usia']) {
+                $usiaInfo = 'Maks. ' . $pengaturan['maksimal_usia'] . ' tahun';
+            }
+
+            $sheet->setCellValue('A8', 'Syarat Usia');
+            $sheet->setCellValue('B8', ': ' . $usiaInfo);
+            $sheet->setCellValue('G8', 'Tanggal Ekspor');
+            $sheet->setCellValue('H8', ': ' . date('d/m/Y H:i'));
+
+            $sheet->getStyle('A4:A8')->getFont()->setBold(true);
+            $sheet->getStyle('G4:G8')->getFont()->setBold(true);
+
+            // Table Header Row 10
+            $headers = [
+                'A10' => 'No',
+                'B10' => 'Peringkat',
+                'C10' => 'NIP',
+                'D10' => 'Nama Pegawai',
+                'E10' => 'Golongan',
+                'F10' => 'Usia (Th)',
+                'G10' => 'Jabatan Saat Ini',
+                'H10' => 'Unit Kerja',
+                'I10' => 'Jenis Jabatan',
+                'J10' => 'Kotak Talenta',
+                'K10' => 'Nilai Potensial',
+                'L10' => 'Nilai Kinerja',
+                'M10' => 'Nilai Talenta',
+            ];
+
+            if ($pengaturan['gunakan_kompetensi_teknis']) {
+                $headers['N10'] = 'Nilai Komp. Teknis';
+                $headers['O10'] = 'Nilai Akhir Talenta';
+                $headers['P10'] = 'Status Suksesor';
+                $lastCol = 'P';
+            } else {
+                $headers['N10'] = 'Nilai Akhir Talenta';
+                $headers['O10'] = 'Status Suksesor';
+                $lastCol = 'O';
+            }
+
+            foreach ($headers as $cell => $val) {
+                $sheet->setCellValue($cell, $val);
+            }
+
+            // Style Table Header
+            $sheet->getStyle("A10:{$lastCol}10")->applyFromArray([
+                'font' => [
+                    'bold' => true,
+                    'color' => ['argb' => 'FFFFFFFF'],
+                    'size' => 10,
+                ],
+                'alignment' => [
+                    'horizontal' => Alignment::HORIZONTAL_CENTER,
+                    'vertical' => Alignment::VERTICAL_CENTER,
+                    'wrapText' => true,
+                ],
+                'fill' => [
+                    'fillType' => Fill::FILL_SOLID,
+                    'startColor' => ['argb' => 'FF0D9488'], // Teal
+                ],
+            ]);
+            $sheet->getRowDimension(10)->setRowHeight(26);
+
+            $rowIdx = 11;
+            foreach ($candidates as $idx => $c) {
+                $isSuksesor = !empty($c['is_suksesor']);
+                $sheet->setCellValue("A{$rowIdx}", $idx + 1);
+                $sheet->setCellValue("B{$rowIdx}", '#' . ($idx + 1));
+                // Set NIP as explicit string to avoid float/scientific notation
+                $sheet->setCellValueExplicit("C{$rowIdx}", (string) $c['nip'], DataType::TYPE_STRING);
+                $sheet->setCellValue("D{$rowIdx}", $c['nama']);
+                $sheet->setCellValue("E{$rowIdx}", $c['golongan'] ?? '-');
+                $sheet->setCellValue("F{$rowIdx}", $c['usia'] ?? '-');
+                $sheet->setCellValue("G{$rowIdx}", $c['jabatan'] ?? '-');
+                $sheet->setCellValue("H{$rowIdx}", $c['unit_kerja'] ?? '-');
+                $sheet->setCellValue("I{$rowIdx}", $c['jenis_jabatan'] ?? '-');
+                $sheet->setCellValue("J{$rowIdx}", isset($c['kotak_rank']) && $c['kotak_rank'] !== null ? 'Kotak ' . $c['kotak_rank'] : '-');
+                $sheet->setCellValue("K{$rowIdx}", isset($c['nilai_potensial']) ? number_format((float) $c['nilai_potensial'], 2) : '-');
+                $sheet->setCellValue("L{$rowIdx}", isset($c['nilai_kinerja']) ? number_format((float) $c['nilai_kinerja'], 2) : '-');
+                $sheet->setCellValue("M{$rowIdx}", isset($c['nilai_talenta']) ? number_format((float) $c['nilai_talenta'], 2) : '-');
+
+                if ($pengaturan['gunakan_kompetensi_teknis']) {
+                    $sheet->setCellValue("N{$rowIdx}", isset($c['nilai_kompetensi_teknis']) ? number_format((float) $c['nilai_kompetensi_teknis'], 2) : '-');
+                    $sheet->setCellValue("O{$rowIdx}", isset($c['nilai_akhir_talenta']) ? number_format((float) $c['nilai_akhir_talenta'], 2) : '-');
+                    $sheet->setCellValue("P{$rowIdx}", $isSuksesor ? 'Suksesor Terpilih' : 'Kandidat');
+                } else {
+                    $sheet->setCellValue("N{$rowIdx}", isset($c['nilai_akhir_talenta']) ? number_format((float) $c['nilai_akhir_talenta'], 2) : '-');
+                    $sheet->setCellValue("O{$rowIdx}", $isSuksesor ? 'Suksesor Terpilih' : 'Kandidat');
+                }
+
+                // Row Styling
+                $rowStyle = [
+                    'alignment' => [
+                        'vertical' => Alignment::VERTICAL_CENTER,
+                    ],
+                ];
+                if ($isSuksesor) {
+                    $rowStyle['fill'] = [
+                        'fillType' => Fill::FILL_SOLID,
+                        'startColor' => ['argb' => 'FFD1FAE5'], // Emerald-100 highlight
+                    ];
+                    $sheet->getStyle("A{$rowIdx}:{$lastCol}{$rowIdx}")->getFont()->setBold(true);
+                } elseif ($idx % 2 === 1) {
+                    $rowStyle['fill'] = [
+                        'fillType' => Fill::FILL_SOLID,
+                        'startColor' => ['argb' => 'FFF0FDFA'], // Teal-50 zebra
+                    ];
+                }
+                $sheet->getStyle("A{$rowIdx}:{$lastCol}{$rowIdx}")->applyFromArray($rowStyle);
+
+                // Alignments
+                $sheet->getStyle("A{$rowIdx}:B{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("E{$rowIdx}:F{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("J{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("K{$rowIdx}:" . ($pengaturan['gunakan_kompetensi_teknis'] ? 'O' : 'N') . "{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+                $sheet->getStyle("{$lastCol}{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+                $sheet->getRowDimension($rowIdx)->setRowHeight(22);
+                $rowIdx++;
+            }
+
+            // If no candidates
+            if (empty($candidates)) {
+                $sheet->setCellValue("A11", "Tidak ada pegawai yang memenuhi kriteria/syarat suksesi untuk jabatan ini.");
+                $sheet->mergeCells("A11:{$lastCol}11");
+                $sheet->getStyle("A11")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("A11")->getFont()->setItalic(true);
+                $sheet->getRowDimension(11)->setRowHeight(30);
+                $rowIdx = 12;
+            }
+
+            // Border for table
+            $endRow = $rowIdx - 1;
+            $sheet->getStyle("A10:{$lastCol}{$endRow}")->applyFromArray([
+                'borders' => [
+                    'allBorders' => [
+                        'borderStyle' => Border::BORDER_THIN,
+                        'color' => ['argb' => 'FFCBD5E1'],
+                    ],
+                ],
+            ]);
+
+            // Auto-size columns
+            foreach (range('A', $lastCol) as $col) {
+                $sheet->getColumnDimension($col)->setAutoSize(true);
+            }
+
+            $cleanTitle = preg_replace('/[^A-Za-z0-9_-]/', '_', $namaJabatan);
+            $typeStr = $isRotasi ? 'Rotasi' : 'Promosi';
+            $filename = "Rekomendasi_Suksesor_{$cleanTitle}_{$typeStr}_" . date('Ymd_His') . ".xlsx";
+
+            $writer = new Xlsx($spreadsheet);
+
+            return response()->streamDownload(function () use ($writer) {
+                $writer->save('php://output');
+            }, $filename, [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'Cache-Control' => 'max-age=0',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to export recommendations',
                 'error' => $e->getMessage(),
             ], 500);
         }

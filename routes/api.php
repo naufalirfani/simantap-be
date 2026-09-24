@@ -49,6 +49,7 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     // Pegawai Routes
     Route::get('pegawai', [PegawaiController::class, 'index']);
     Route::post('pegawai/sync', [PegawaiController::class, 'sync']);
+    Route::get('pegawai/rekomendasi/{peta_jabatan_id}/export', [PegawaiController::class, 'exportRecommend']);
     Route::get('pegawai/rekomendasi/{peta_jabatan_id}', [PegawaiController::class, 'recommend']);
     Route::get('pegawai/{nip}', [PegawaiController::class, 'show']);
 
