@@ -47,9 +47,8 @@ class PetaJabatanController extends Controller
             }, $models);
 
             $rawKategori = $request->get('kategori_jabatan_kosong') ?? $request->get('kategori');
-            $kategoriFilter = null;
-            if ($rawKategori) {
-                $cleanKat = strtolower(trim((string) $rawKategori));
+            $kategoriFilter = [];
+            if (!empty($rawKategori)) {
                 $aliasMap = [
                     'sudah_kosong' => 'sudah_kosong',
                     'sudah kosong' => 'sudah_kosong',
@@ -73,9 +72,15 @@ class PetaJabatanController extends Controller
                     'akan_kosong_2_tahun' => '2_tahun',
                     'akan kosong dalam 2 tahun' => '2_tahun',
                 ];
-                if (isset($aliasMap[$cleanKat])) {
-                    $kategoriFilter = $aliasMap[$cleanKat];
+
+                $rawList = is_array($rawKategori) ? $rawKategori : explode(',', (string) $rawKategori);
+                foreach ($rawList as $item) {
+                    $cleanKat = strtolower(trim((string) $item));
+                    if (isset($aliasMap[$cleanKat])) {
+                        $kategoriFilter[] = $aliasMap[$cleanKat];
+                    }
                 }
+                $kategoriFilter = array_values(array_unique($kategoriFilter));
             }
 
             $allowedTypes = [
@@ -182,8 +187,8 @@ class PetaJabatanController extends Controller
                             return false;
                         }
 
-                        if ($kategoriFilter !== null) {
-                            return $a['kategori_jabatan_kosong'] === $kategoriFilter;
+                        if (!empty($kategoriFilter)) {
+                            return in_array($a['kategori_jabatan_kosong'], $kategoriFilter, true);
                         }
 
                         return true;

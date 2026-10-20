@@ -47,6 +47,60 @@ class PenilaianSyncServiceTest extends TestCase
         $this->assertEquals(100.0, $nilai);
     }
 
+    public function test_get_nilai_diklat_kepemimpinan_considers_masa_berlaku_sert_selesai(): void
+    {
+        $service = new PenilaianSyncService();
+
+        $instrumens = collect([
+            (object) ['instrumen' => 'a. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 3 kali atau lebih', 'skor' => 100.0],
+            (object) ['instrumen' => 'b. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 1-2 kali', 'skor' => 80.0],
+            (object) ['instrumen' => 'c. Jumlah Sertifikasi dalam 3 tahun terakhir sebanyak 0 kali', 'skor' => 0.0],
+        ]);
+
+        $riwayatSertifikasi = [
+            // 1. tanggalSertifikat 4 years ago, but masaBerlakuSertSelesai 1 year ago (valid <= 3 years) -> should count
+            [
+                'jenisKursusSertifikat' => 'SERTIFIKASI PROFESI',
+                'namaKursus' => 'Sertifikasi BNSP',
+                'tanggalSertifikat' => now()->subYears(4)->format('d-m-Y'),
+                'masaBerlakuSertSelesai' => now()->subYears(1)->format('d-m-Y'),
+            ],
+            // 2. tanggalSertifikat 5 years ago, but masaBerlakuSertSelesai in the future (active) -> should count
+            [
+                'jenisKursusSertifikat' => 'SERTIFIKASI KOMPETENSI',
+                'namaKursus' => 'Cloud Certification',
+                'tanggalSertifikat' => now()->subYears(5)->format('d-m-Y'),
+                'masaBerlakuSertSelesai' => now()->addYears(2)->format('d-m-Y'),
+            ],
+            // 3. tanggalSertifikat 5 years ago and masaBerlakuSertSelesai 4 years ago (> 3 years ago) -> should NOT count
+            [
+                'jenisKursusSertifikat' => 'SERTIFIKASI KEAHLIAN',
+                'namaKursus' => 'Old Expired Cert',
+                'tanggalSertifikat' => now()->subYears(5)->format('d-m-Y'),
+                'masaBerlakuSertSelesai' => now()->subYears(4)->format('d-m-Y'),
+            ],
+            // 4. tanggalSertifikat within 3 years, masaBerlakuSertSelesai null -> should count
+            [
+                'jenisKursusSertifikat' => 'SERTIFIKASI TEKNIS',
+                'namaKursus' => 'Recent Cert No End Date',
+                'tanggalSertifikat' => now()->subYears(2)->format('d-m-Y'),
+                'masaBerlakuSertSelesai' => null,
+            ],
+        ];
+
+        // Total counted sertifikasi: 1 (BNSP) + 1 (Cloud) + 1 (Recent) = 3 -> skor 100.0
+        $nilai = $service->getNilaiDiklatKepemimpinan([], $riwayatSertifikasi, $instrumens);
+        $this->assertEquals(100.0, $nilai);
+
+        // If we only take the first record (1 valid sertifikasi) -> tier 1-2 kali -> skor 80.0
+        $nilaiSingle = $service->getNilaiDiklatKepemimpinan([], [$riwayatSertifikasi[0]], $instrumens);
+        $this->assertEquals(80.0, $nilaiSingle);
+
+        // If we only take the expired record -> tier 0 kali -> skor 0.0
+        $nilaiExpired = $service->getNilaiDiklatKepemimpinan([], [$riwayatSertifikasi[2]], $instrumens);
+        $this->assertEquals(0.0, $nilaiExpired);
+    }
+
     public function test_record_api_hit_progress_does_not_throw_exception(): void
     {
         $service = new PenilaianSyncService();

@@ -1642,13 +1642,13 @@ class PenilaianSyncService
      * Derive the nilai for "Diklat Kepemimpinan/Keahlian/Penjenjangan" by
      * combining:
      * 1) non-fungsional diklat records (all records, no year filter),
-     * 2) non-fungsional sertifikasi records (only records whose tanggalSertifikat falls within the last 3 years),
+     * 2) non-fungsional sertifikasi records (records whose tanggalSertifikat or masaBerlakuSertSelesai falls within the last 3 years / not more than 3 years ago),
      * 3) diklat fungsional records from kursus/diklat/sertifikasi (all records, no date filter since validity is lifetime),
      * then matching the combined total against instrumen scoring tiers.
      *
      * Counting rules:
      *  - Diklat non-fungsional: count all de-duplicated records regardless of year.
-     *  - Sertifikasi non-fungsional: count only records where tanggalSertifikat >= 3 years ago.
+     *  - Sertifikasi non-fungsional: count records where tanggalSertifikat >= 3 years ago OR masaBerlakuSertSelesai >= 3 years ago.
      *  - Diklat Fungsional: count all records without checking tanggalSertifikat (lifetime validity).
      *  - Total = count(diklat non-fungsional) + count(sertifikasi non-fungsional within 3 years) + count(diklat fungsional).
      *
@@ -1679,7 +1679,11 @@ class PenilaianSyncService
             try {
                 return \Carbon\Carbon::createFromFormat('d-m-Y', trim($d))->startOfDay();
             } catch (\Exception $e) {
-                return null;
+                try {
+                    return \Carbon\Carbon::parse(trim($d))->startOfDay();
+                } catch (\Exception $e2) {
+                    return null;
+                }
             }
         };
 
@@ -1695,6 +1699,7 @@ class PenilaianSyncService
         }
 
         // Count sertifikasi records within the last 3 years (excluding diklat fungsional)
+        // Also considers masaBerlakuSertSelesai: if masaBerlakuSertSelesai is not older than 3 years, it is still counted
         $threeYearsAgo = now()->subYears(3)->startOfDay();
         $sertifikasiCount = 0;
 
@@ -1703,9 +1708,13 @@ class PenilaianSyncService
                 if (! is_array($record) || $this->isDiklatFungsionalRecord($record)) {
                     continue;
                 }
-                $dateStr = $record['tanggalSertifikat'] ?? null;
-                $date = $parseDate($dateStr);
-                if ($date !== null && $date->greaterThanOrEqualTo($threeYearsAgo)) {
+                $tglSertifikat = $parseDate($record['tanggalSertifikat'] ?? $record['tanggal_sertifikat'] ?? null);
+                $tglSelesai = $parseDate($record['masaBerlakuSertSelesai'] ?? $record['masa_berlaku_sert_selesai'] ?? null);
+
+                $isTanggalValid = ($tglSertifikat !== null && $tglSertifikat->greaterThanOrEqualTo($threeYearsAgo));
+                $isMasaBerlakuValid = ($tglSelesai !== null && $tglSelesai->greaterThanOrEqualTo($threeYearsAgo));
+
+                if ($isTanggalValid || $isMasaBerlakuValid) {
                     $sertifikasiCount++;
                 }
             }
